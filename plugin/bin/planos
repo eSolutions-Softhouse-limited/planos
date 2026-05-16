@@ -1679,6 +1679,9 @@ function extractPlan(raw) {
   }
   const plan = hookJson && typeof hookJson === "object" && hookJson.tool_input && typeof hookJson.tool_input === "object" ? hookJson.tool_input.plan : void 0;
   if (typeof plan === "string") return plan;
+  if (hookJson && typeof hookJson === "object" && hookJson.schemaVersion === 1 && typeof hookJson.type === "string" && Array.isArray(hookJson.blocks)) {
+    return raw;
+  }
   if (plan === void 0 || plan === null) return "";
   try {
     const s = JSON.stringify(plan);

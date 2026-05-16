@@ -179,6 +179,24 @@ export function extractPlan(raw) {
       ? hookJson.tool_input.plan
       : undefined;
   if (typeof plan === 'string') return plan;
+  // Defensive skill-contract alignment (ADR-0006 sibling fix): the
+  // /planos-prd, /planos-plan and /planos-review skills document piping the
+  // BARE authored document JSON to `bin/planos <cmd>` (NOT wrapped in the
+  // ExitPlanMode `{tool_input:{plan}}` hook envelope). Without this, a bare
+  // authored doc has no tool_input.plan, returns '', and degradeToProse
+  // silently throws the authored content away (the "plan came back empty /
+  // failed" symptom). If stdin itself parses to a planos Document, treat the
+  // raw text AS the plan so authored content is never lost. Pure shape check
+  // — no network, no model, no new import (AC-17-safe).
+  if (
+    hookJson &&
+    typeof hookJson === 'object' &&
+    hookJson.schemaVersion === 1 &&
+    typeof hookJson.type === 'string' &&
+    Array.isArray(hookJson.blocks)
+  ) {
+    return raw;
+  }
   if (plan === undefined || plan === null) return '';
   // plan present but not a string — stringify so the fallback can wrap it.
   // JSON.stringify can throw (circular refs, BigInt); never let that escape —
