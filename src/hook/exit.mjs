@@ -535,8 +535,18 @@ export function buildSpaHtml(doc) {
     `<script>window.__PLANOS_DOC__=` +
     JSON.stringify(doc).replace(/<\/(script)/gi, '<\\/$1') +
     `;</script>`;
-  if (html.includes('</head>')) {
-    return html.replace('</head>', `${inline}</head>`);
+  // Anchor on the LAST `</head>` — the document's real closing head tag. The
+  // minified single-file bundle inlines third-party source (DOMPurify/mermaid)
+  // that contains `</head>` string literals INSIDE the `<script type="module">`;
+  // `String.replace('</head>', …)` would match the first such literal and
+  // splice the inline `<script>…;</script>` into the middle of the module
+  // bundle, prematurely closing it and dumping the rest as raw text. The real
+  // `</head>` always follows the entire inlined script, so it is the last
+  // occurrence. slice()+concat also avoids `String.replace`'s `$&`/`$$`
+  // replacement-pattern interpretation on the embedded JSON doc.
+  const idx = html.lastIndexOf('</head>');
+  if (idx !== -1) {
+    return html.slice(0, idx) + inline + html.slice(idx);
   }
   // No </head> (unexpected) — prepend; the loader still picks it up.
   return inline + html;
