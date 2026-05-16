@@ -73,15 +73,20 @@ installed alongside planos:
   stdout exclusively. This is an unrecoverable UX/state collision for a
   blocking 96h round-trip; graceful coexistence is genuinely a Phase-4-sized
   problem and is out of Phase-1 scope.
-- **Decided posture (Phase 1): detect-and-refuse.** Rather than attempt
-  coexistence, planos's `bin/planos exit` path should fail fast and loudly if
-  it can detect a second matching `ExitPlanMode` plugin (e.g. a known
-  plannotator marker), instead of silently double-booting. This honours the
-  user decision and the existing single-plugin clean-env assumption already
-  documented in `src/hook/exit.mjs` (the TODO(US-006) note there). The
-  exclusive-stdout-ownership assumption in `bin/planos exit` is therefore
-  *intentional and asserted*, not an oversight: planos assumes it is the sole
-  `ExitPlanMode` owner and refuses if that assumption is violated.
+- **Decided posture (Phase 1): detect-and-refuse — IMPLEMENTED.**
+  `src/hook/coexistence.mjs` scans the siblings of `CLAUDE_PLUGIN_ROOT` for any
+  other plugin whose `hooks/hooks.json` declares a `PermissionRequest`
+  `ExitPlanMode` matcher; `handleExit` consults it on the **production path
+  only** (scripted/harness/live-driver runs are clean-env by construction and
+  opt out, so the Phase-1 gate and the test suite are unaffected) and, on a
+  positive detection, refuses **without booting the server or emitting a
+  stdout decision** (stderr explanation + non-zero exit) rather than
+  double-booting. Detection is pure local-fs (AC-17 import-graph stays CLEAN,
+  re-verified) and defensive (any error → "no collision", never spuriously
+  blocks a clean env). Escape hatch: `PLANOS_ALLOW_COEXIST=1`. Covered by
+  `tests/coexistence.test.mjs` (7 tests). The exclusive-stdout-ownership
+  assumption in `bin/planos exit` is therefore *intentional and now
+  enforced*, not an oversight.
 - No change to the clean-env Phase-1 loop: in the absence of a colliding
   plugin (the Phase-1 environment), planos is the sole owner and behaves
   exactly as built. The actual implementation of the detect-and-refuse guard

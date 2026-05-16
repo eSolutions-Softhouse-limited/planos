@@ -57,6 +57,10 @@ import { spawn } from 'node:child_process';
 
 import { startServer } from '../server/index.mjs';
 import {
+  coexistenceGuard,
+  coexistenceRefusalMessage,
+} from './coexistence.mjs';
+import {
   validateDocument,
   degradeToProse,
   validateEnvelope,
@@ -828,6 +832,45 @@ export async function handleExit(options = {}) {
   // SCRIPTED iff a decisionProvider is injected (thin-loop / harness). Real-SPA
   // otherwise (production / US-014). The scripted seam is preserved verbatim.
   const scripted = typeof decisionProvider === 'function';
+
+  // US-006 decided posture — plannotator coexistence guard. Production path
+  // ONLY: if a SECOND installed plugin also hooks ExitPlanMode, Claude Code
+  // dispatches to ALL matching plugins (deny-wins reconciliation) and two
+  // blocking 96h servers cannot coexist — planos REFUSES rather than
+  // double-boot (docs/notes/plannotator-coexistence-spike.md). Scripted /
+  // harness / live-driver runs (decisionProvider injected) are clean-env by
+  // construction and opt out, so the Phase-1 gate and the test suite are
+  // unaffected. Detection is pure local-fs (AC-17 safe); injectable for tests.
+  if (!scripted) {
+    const guard =
+      typeof options.coexistenceGuard === 'function'
+        ? options.coexistenceGuard
+        : coexistenceGuard;
+    let colliding = [];
+    try {
+      colliding = guard({}) || [];
+    } catch {
+      // Defensive: a guard failure must never block the user — treat as no
+      // collision (the documented clean-env assumption holds).
+      colliding = [];
+    }
+    if (colliding.length > 0) {
+      const onRefuse =
+        typeof options.onRefuse === 'function'
+          ? options.onRefuse
+          : (msg) => {
+              try {
+                process.stderr.write(msg + '\n');
+              } catch {
+                /* best-effort */
+              }
+              process.exit(1);
+            };
+      // Refuse WITHOUT booting the server or emitting a stdout decision (do
+      // not hijack the PermissionRequest channel in a multi-plugin session).
+      return onRefuse(coexistenceRefusalMessage(colliding), colliding);
+    }
+  }
 
   // Open-browser default: real opener in real-SPA mode (so `bin/planos exit`
   // with no args opens the editor); no-op default in scripted mode (the
