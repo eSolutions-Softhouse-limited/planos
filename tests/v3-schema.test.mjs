@@ -614,9 +614,9 @@ test("AC-R2 a type:'diff-review' doc REJECTS every v2 PRD kind (R7)", () => {
     assert.ok(
       res.errors.some(
         (e) =>
-          e.includes(`blocks[0].kind '${kind}' is a v2 PRD-only kind`) &&
+          e.includes(`blocks[0].kind '${kind}' is a v2 plan/PRD kind`) &&
           e.includes("type:'diff-review'") &&
-          e.includes("v2 kinds require type:'prd'"),
+          e.includes("v2 kinds require type:'plan' or type:'prd'"),
       ),
       `expected a v2-rejection field-level error for '${kind}', got: ${res.errors.join(
         " || ",

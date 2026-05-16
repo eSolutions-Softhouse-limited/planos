@@ -25,8 +25,10 @@ export const V1_KINDS = Object.freeze([
 
 /**
  * The exact v2 block kinds (design.md §4 lines 143-149), in canonical order.
- * v2 kinds are PRD-scoped: only accepted in `type:"prd"` documents (D5(i) —
- * keeps the plan-mode v1 contract tight). A `type:"prd"` doc accepts v1∪v2.
+ * v2 kinds are accepted in BOTH `type:"plan"` and `type:"prd"` documents
+ * (ADR-0005 supersedes ADR-0002 D5(i): plans are now visually-approvable and
+ * carry mermaid/tables/code/fileChange too). A `type:"diff-review"` doc still
+ * accepts only v1∪v3 (R7 — v2 PRD kinds are NOT meaningful in a diff review).
  */
 export const V2_KINDS = Object.freeze([
   "phase",
@@ -45,7 +47,6 @@ export const V2_KINDS = Object.freeze([
  */
 export const V3_KINDS = Object.freeze(["diff"]);
 
-const KIND_LIST = V1_KINDS.join("|");
 const V2_KIND_SET = new Set(V2_KINDS);
 const V3_KIND_SET = new Set(V3_KINDS);
 const PRD_KIND_LIST = V1_KINDS.concat(V2_KINDS).join("|");
@@ -637,16 +638,13 @@ function validateBlockComment(c, path, errors) {
 
 function validateBlock(block, index, errors, docType) {
   const path = `blocks[${index}]`;
-  // v2 kinds are PRD-scoped (D5(i)): only `type:"prd"` documents accept them.
+  // v2 kinds are accepted in BOTH plan and prd (ADR-0005 supersedes D5(i)):
+  // plans are visually-approvable and carry mermaid/tables/code/fileChange.
   // v3 `diff` is diff-review-scoped (R7): only `type:"diff-review"` documents
   // accept it, and a diff-review doc accepts v1∪v3 (NOT v2 PRD kinds).
-  const isPrd = docType === "prd";
   const isDiffReview = docType === "diff-review";
-  const validKindList = isPrd
-    ? PRD_KIND_LIST
-    : isDiffReview
-      ? DIFF_REVIEW_KIND_LIST
-      : KIND_LIST;
+  // plan ∪ prd → v1∪v2; diff-review → v1∪v3.
+  const validKindList = isDiffReview ? DIFF_REVIEW_KIND_LIST : PRD_KIND_LIST;
   if (!isObject(block)) {
     errors.push(`${path} must be an object but is ${show(block)}`);
     return;
@@ -666,32 +664,26 @@ function validateBlock(block, index, errors, docType) {
     );
     return;
   }
-  // A v2 kind outside a PRD document is a field-level rejection: keeps the
-  // plan-mode v1 contract (and the diff-review v1∪v3 contract) tight (D5(i) /
-  // R7 — v2 PRD kinds are NOT meaningful in a diff-review doc).
-  if (!isPrd && V2_KIND_SET.has(block.kind)) {
+  // A v2 kind in a diff-review document is a field-level rejection: a
+  // diff-review doc is v1∪v3 only (R7 — v2 PRD kinds are NOT meaningful in a
+  // diff review). plan ∪ prd both accept v2 (ADR-0005 supersedes D5(i)).
+  if (isDiffReview && V2_KIND_SET.has(block.kind)) {
     errors.push(
       `${path}.kind ${show(
         block.kind,
-      )} is a v2 PRD-only kind and is not allowed in a type:'${
-        docType === undefined ? "plan" : docType
-      }' document (expected one of ${
-        isDiffReview ? DIFF_REVIEW_KIND_LIST : KIND_LIST
-      }; v2 kinds require type:'prd')`,
+      )} is a v2 plan/PRD kind and is not allowed in a type:'diff-review' document (expected one of ${DIFF_REVIEW_KIND_LIST}; v2 kinds require type:'plan' or type:'prd')`,
     );
     return;
   }
   // A v3 `diff` kind outside a diff-review document is a field-level rejection:
-  // keeps the plan-mode v1 / PRD v1∪v2 contracts tight (R7, mirror of D5(i)).
+  // keeps the plan/PRD v1∪v2 contract tight (R7, mirror of the old D5(i)).
   if (!isDiffReview && V3_KIND_SET.has(block.kind)) {
     errors.push(
       `${path}.kind ${show(
         block.kind,
       )} is a v3 diff-review-only kind and is not allowed in a type:'${
         docType === undefined ? "plan" : docType
-      }' document (expected one of ${
-        isPrd ? PRD_KIND_LIST : KIND_LIST
-      }; the 'diff' kind requires type:'diff-review')`,
+      }' document (expected one of ${PRD_KIND_LIST}; the 'diff' kind requires type:'diff-review')`,
     );
     return;
   }
@@ -701,7 +693,7 @@ function validateBlock(block, index, errors, docType) {
       `${path}.kind ${show(
         block.kind,
       )} is not a valid ${
-        isPrd ? "v1∪v2" : isDiffReview ? "v1∪v3" : "v1"
+        isDiffReview ? "v1∪v3" : "v1∪v2"
       } kind (expected one of ${validKindList})`,
     );
     return;

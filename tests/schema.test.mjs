@@ -132,7 +132,7 @@ test("AC-6 rejects unknown block kind with field-level error naming the path + v
   bad.blocks[3] = { id: "x", kind: "tsk", title: "oops" };
   expectError(
     bad,
-    "blocks[3].kind 'tsk' is not a valid v1 kind (expected one of section|prose|objective|task|decision|risk|openQuestion)",
+    "blocks[3].kind 'tsk' is not a valid v1∪v2 kind (expected one of section|prose|objective|task|decision|risk|openQuestion|phase|tradeoff|fileChange|code|table|diagram)",
     "bad kind",
   );
 });

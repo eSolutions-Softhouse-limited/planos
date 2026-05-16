@@ -6,8 +6,9 @@
  *           code, table, diagram) with valid field shapes, and REJECTS each
  *           malformed shape with a field-level error string suitable for the
  *           deny→revise preamble (asserts on the exact error path text).
- *  - AC-P2: a type:"plan" document containing a v2 kind is REJECTED; a
- *           type:"prd" document accepts v1∪v2 kinds.
+ *  - AC-P2: type:"plan" AND type:"prd" documents BOTH accept v1∪v2 kinds
+ *           (ADR-0005 supersedes ADR-0002 D5(i) — plans are now visually-
+ *           approvable); a type:"diff-review" doc still rejects v2 kinds.
  *  - AC-P3: degradeToProse still produces exactly ONE prose block +
  *           meta.degraded=true for malformed PRD input (deterministic).
  *
@@ -340,32 +341,56 @@ test("AC-P1 rejects diagram missing 'mermaid'", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-P2: v2 kinds are PRD-scoped (D5(i))
+// AC-P2: v2 kinds are accepted in BOTH plan and prd (ADR-0005 supersedes D5(i))
 // ---------------------------------------------------------------------------
 
-test("AC-P2 a type:'plan' doc containing a v2 kind is REJECTED", () => {
-  for (const kind of V2_KINDS) {
-    const planWithV2 = {
-      schemaVersion: 1,
-      type: "plan",
-      id: "plan-1",
-      title: "Plan that smuggles a v2 kind",
-      meta: { status: "draft", createdAt: "2026-05-16T00:00:00Z", revision: 1 },
-      blocks: [{ id: "x", kind }],
-    };
-    const res = validateDocument(planWithV2);
-    assert.equal(res.ok, false, `v2 kind '${kind}' must be rejected in a plan`);
-    assert.ok(
-      res.errors.some(
-        (e) =>
-          e.includes(`blocks[0].kind '${kind}' is a v2 PRD-only kind`) &&
-          e.includes("type:'plan'") &&
-          e.includes("v2 kinds require type:'prd'"),
-      ),
-      `expected a PRD-scoping field-level error for '${kind}', got: ${res.errors.join(
-        " || ",
-      )}`,
-    );
+/** Wrap a list of blocks in a minimal valid type:"plan" document. */
+function planDoc(blocks) {
+  return {
+    schemaVersion: 1,
+    type: "plan",
+    id: "plan-1",
+    title: "Rich plan",
+    meta: { status: "draft", createdAt: "2026-05-16T00:00:00Z", revision: 1 },
+    blocks,
+  };
+}
+
+test("AC-P2 a type:'plan' doc ACCEPTS every v2 kind (ADR-0005)", () => {
+  const richPlan = planDoc([
+    { id: "p0", kind: "prose", md: "Plan context. v1 kinds remain valid." },
+    { id: "ph1", kind: "phase", title: "Phase 1", taskIds: ["t1"] },
+    {
+      id: "tr1",
+      kind: "tradeoff",
+      axis: "Storage backend",
+      options: [{ label: "Postgres", score: 8 }, { label: "SQLite" }],
+    },
+    {
+      id: "fc1",
+      kind: "fileChange",
+      path: "src/x.mjs",
+      action: "add",
+      rationale: "New layer.",
+    },
+    { id: "cd1", kind: "code", lang: "js", content: "export const x = 1;\n" },
+    {
+      id: "tb1",
+      kind: "table",
+      columns: ["Field", "Type"],
+      rows: [["id", "string"]],
+    },
+    { id: "dg1", kind: "diagram", mermaid: "graph TD; A-->B;" },
+  ]);
+  const res = validateDocument(richPlan);
+  assert.equal(
+    res.ok,
+    true,
+    `expected a rich plan to be accepted, got: ${JSON.stringify(res.errors)}`,
+  );
+  const kinds = new Set(richPlan.blocks.map((b) => b.kind));
+  for (const k of V2_KINDS) {
+    assert.ok(kinds.has(k), `fixture should exercise v2 kind '${k}'`);
   }
 });
 
@@ -420,7 +445,7 @@ test("AC-P2 invalid-kind message reflects v1∪v2 for type:'prd'", () => {
   );
 });
 
-test("AC-P2 invalid-kind message stays v1-only for type:'plan'", () => {
+test("AC-P2 invalid-kind message reflects v1∪v2 for type:'plan' (ADR-0005)", () => {
   const res = validateDocument({
     schemaVersion: 1,
     type: "plan",
@@ -433,10 +458,11 @@ test("AC-P2 invalid-kind message stays v1-only for type:'plan'", () => {
   assert.ok(
     res.errors.some(
       (e) =>
-        e.includes("blocks[0].kind 'totallyBogus' is not a valid v1 kind") &&
-        !e.includes("phase"),
+        e.includes("blocks[0].kind 'totallyBogus' is not a valid v1∪v2 kind") &&
+        e.includes("phase") &&
+        e.includes("diagram"),
     ),
-    `expected a v1-only invalid-kind message, got: ${res.errors.join(" || ")}`,
+    `expected a v1∪v2 invalid-kind message, got: ${res.errors.join(" || ")}`,
   );
 });
 

@@ -6,7 +6,7 @@ argument-hint: "[topic]"
 
 You are running the **planos Socratic interview**.
 
-Your job: conduct a focused, adaptive interview in this terminal conversation to crystallize the user's planning intent — one question at a time — and then author a structured planos v1 block document from the result so the existing ExitPlanMode → browser review loop can run unchanged.
+Your job: conduct a focused, adaptive interview in this terminal conversation to crystallize the user's planning intent — one question at a time — and then author a structured planos block document (v1 core ∪ v2 rich kinds — ADR-0005) from the result so the existing ExitPlanMode → browser review loop can run unchanged.
 
 **Topic (if provided):** $ARGUMENTS
 
@@ -126,9 +126,9 @@ Present this summary to the user and ask: "Does this capture the intent accurate
 
 ## PHASE 2 — Structured Block Authoring
 
-After the Crystallized Intent Summary is confirmed (or after graceful degradation), enter plan mode and author a **planos v1 block document** from the crystallized intent.
+After the Crystallized Intent Summary is confirmed (or after graceful degradation), enter plan mode and author a **planos block document (v1 core ∪ v2 rich kinds)** from the crystallized intent.
 
-### Block schema reference (v1 core kinds)
+### Block schema reference (v1 core kinds + v2 rich kinds)
 
 Every block must have a stable `id` (a short, descriptive slug, e.g. `"goal-auth-rewrite"`) and a `kind`. The document wraps all blocks.
 
@@ -167,6 +167,37 @@ risk           { id, kind: "risk", description: "<risk>",
                  mitigation: "<mitigation>" }
 openQuestion   { id, kind: "openQuestion", question: "<question>",
                  answer?: null }
+
+// v2 rich kinds (valid in type:"plan" too — ADR-0005). Use these to make
+// the plan VISUALLY APPROVABLE in one glance, not a wall of prose:
+
+phase          { id, kind: "phase", title: "<phase name>",
+                 taskIds: ["<block-id>", ...] }
+                 // taskIds lists ids of task blocks belonging to this phase.
+                 // Referential integrity is agent-authored (like task.deps).
+
+tradeoff       { id, kind: "tradeoff", axis: "<decision axis>",
+                 options: [{ label: "<option label>",
+                              score?: <number>,
+                              note?: "<note>" }, ...] }
+                 // At least one option required. score optional (any number).
+
+fileChange     { id, kind: "fileChange", path: "<file path>",
+                 action: "add"|"modify"|"delete",
+                 rationale: "<why this file changes>" }
+
+code           { id, kind: "code", lang: "<language>", content: "<code text>",
+                 filename?: "<optional filename>" }
+                 // content may be empty string (placeholder). lang non-empty.
+
+table          { id, kind: "table", columns: ["<col>", ...],
+                 rows: [["<cell>", ...], ...] }
+                 // columns non-empty string array. Each row length must
+                 // equal columns.length.
+
+diagram        { id, kind: "diagram", mermaid: "<mermaid source>" }
+                 // mermaid non-empty. Rendered as a Mermaid diagram in the
+                 // SPA (bundled renderer — fully offline, no CDN).
 ```
 
 ### ID rules (critical for stability across revisions)
@@ -183,9 +214,14 @@ openQuestion   { id, kind: "openQuestion", question: "<question>",
    - Each KEY CONSTRAINT / NON-GOAL → a `prose` block under a "Constraints & Non-Goals" section.
    - Each OPEN QUESTION → an `openQuestion` block (leave `answer: null` for the human to fill in the browser UI).
    - Material risks surfaced during the interview → `risk` blocks.
-   - Any significant design choice with alternatives → a `decision` block.
+   - Any significant design choice with alternatives → a `decision` block; if the choice has weighted/scored options along one axis, prefer a `tradeoff` block.
+   - Every file you expect to add/modify/delete → a `fileChange` block (one per path) so the reviewer sees the blast radius at a glance.
+   - Architecture, control flow, sequence, or state transitions → a `diagram` block (Mermaid source) — this is the single highest-value block for one-glance human approval.
+   - Comparison/matrix data (option grids, before/after, coverage) → a `table` block.
+   - Important scaffolding or signature-level snippets → a `code` block.
+   - Delivery milestones → `phase` blocks listing their `task` block ids.
 2. Group blocks logically using `section` blocks at appropriate heading levels.
-3. Keep `prose` blocks for narrative context; prefer structured kinds (`task`, `decision`, `risk`, `openQuestion`) for actionable content.
+3. **Author for visual approvability.** A reviewer should be able to approve or request changes by *scanning*, not deep-reading. Lead with a `diagram` and/or `table` where one would replace a paragraph; keep `prose` for genuine narrative only; prefer structured kinds (`task`, `decision`, `tradeoff`, `fileChange`, `risk`, `openQuestion`) over prose for anything actionable or comparative.
 4. Emit the document as valid JSON inside a fenced code block:
 
 ```json
@@ -217,7 +253,7 @@ Phase 1: Socratic interview (CLI, this conversation, one Q at a time)
       ↓
 Crystallized Intent Summary (confirmed with user)
       ↓
-Phase 2: Agent authors v1 block document JSON
+Phase 2: Agent authors block document JSON (v1 ∪ v2 rich kinds)
       ↓
 ExitPlanMode → planos browser review loop (unchanged)
       ↓

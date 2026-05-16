@@ -74,9 +74,13 @@ after the build.
 
 ### D5 — v2 schema scoping & strictness → **(i) reject / (ii) hard / (iii) agent-authored**
 
-- **(i)** v2 kinds (`phase, tradeoff, fileChange, code, table, diagram`) are
-  REJECTED in `type:"plan"` documents and accepted only for `type:"prd"`
-  documents — the plan-mode v1 contract stays tight (AC-P2).
+- **(i)** ⚠️ **SUPERSEDED by ADR-0005 (2026-05-17).** Originally: v2 kinds
+  (`phase, tradeoff, fileChange, code, table, diagram`) were REJECTED in
+  `type:"plan"` documents and accepted only for `type:"prd"` — the plan-mode
+  v1 contract stayed tight (AC-P2). As of ADR-0005, `type:"plan"` accepts
+  v1∪v2 too (plans are visually-approvable); see
+  `docs/adr/0005-plan-accepts-v2-rich-kinds.md`. D5(ii) and D5(iii) below
+  remain in force.
 - **(ii)** A `table` block whose `rows` length does not match `columns` length
   is a **hard validator error** (a field-level error string the deny→revise
   preamble can surface), not a soft note.
