@@ -322,14 +322,24 @@ await test('walker: matchForbidden covers scoped, bare, subpath, and clean specs
 // ===========================================================================
 
 await test('AC-17 STATIC: blocking/artifact/ID transitive set is model-free (real graph walk)', () => {
-  const result = walkImportGraph(ac17Roots());
+  // The walk must be real over the ACTUAL dispatcher source-of-truth. The
+  // shipped plugin/bin/planos is now an esbuild bundle of
+  // src/bin/planos-entry.mjs (the static-import SOURCE dispatcher) — the
+  // bundled file is edgeless, so the real reachability walk follows the
+  // dispatcher's enter/exit/prd/review/export edges via the SOURCE entry
+  // instead (and enter.mjs's `await import('../schema/index.mjs')` literal
+  // dynamic import too). This adds ONE extra walk root; ac17Roots() itself
+  // stays byte-frozen — the deepEqual below + the AC-Q12 negative proof remain
+  // intact, both deriving from the UNCHANGED ac17Roots() (ADR-0004 / ADR-0006).
+  const result = walkImportGraph([
+    ...ac17Roots(),
+    pResolve(REPO, 'src/bin/planos-entry.mjs'),
+  ]);
 
-  // The walk must be real: bin/planos's resolve(__dirname,'<lit>') dynamic
-  // imports must have been followed into the hook modules, and enter.mjs's
-  // `await import('../schema/index.mjs')` literal dynamic import too.
   const names = result.modules.map(rel);
   for (const expected of [
     'plugin/bin/planos',
+    'src/bin/planos-entry.mjs',
     'src/hook/exit.mjs',
     'src/hook/enter.mjs',
     'src/server/index.mjs',

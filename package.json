@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build:editor": "vite build"
+    "build:editor": "vite build",
+    "build:bin": "node esbuild.bin.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",

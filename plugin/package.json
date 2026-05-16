@@ -1,0 +1,6 @@
+{
+  "name": "planos-plugin",
+  "private": true,
+  "type": "module",
+  "comment": "Node module-type marker ONLY. Makes the shipped, bundled bin/planos resolve as ESM regardless of install location (no reliance on the repo-root package.json, which is never packaged inside ./plugin). Carries NO dependencies and NO scripts by design."
+}

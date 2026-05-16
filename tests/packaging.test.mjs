@@ -22,7 +22,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -182,11 +182,45 @@ test('package.json declares NO runtime dependencies (zero-dep invariant)', () =>
 test('plugin/bin/planos still dispatches enter|exit|prd|review|export', () => {
   const bin = readFileSync(PLANOS_BIN, 'utf8');
   for (const sub of ['enter', 'exit', 'prd', 'review', 'export']) {
+    // plugin/bin/planos is now an esbuild bundle of src/bin/planos-entry.mjs
+    // (ADR-0006); esbuild normalizes string literals to double quotes, so the
+    // dispatch is `case "<sub>":`. Quote-agnostic assertion keeps the
+    // "every subcommand dispatched" contract intact across the bundling.
     assert.ok(
-      new RegExp(`case '${sub}':`).test(bin),
+      new RegExp(`case ["']${sub}["']:`).test(bin),
       `bin/planos must still dispatch the "${sub}" subcommand`,
     );
   }
+});
+
+test('src/bin/planos-entry.mjs is the static-import SOURCE dispatcher (bundle input)', () => {
+  const entry = join(REPO_ROOT, 'src/bin/planos-entry.mjs');
+  assert.ok(
+    existsSync(entry),
+    'src/bin/planos-entry.mjs must exist — it is the AC-17-audited esbuild input',
+  );
+  const src = readFileSync(entry, 'utf8');
+  for (const fn of [
+    'handleEnter',
+    'handleExit',
+    'handlePrd',
+    'handleReview',
+    'handleExport',
+  ]) {
+    assert.ok(
+      new RegExp(`import \\{ ${fn} \\} from '\\.\\./hook/`).test(src),
+      `source dispatcher must STATICALLY import ${fn} (no dynamic import — bundleable)`,
+    );
+  }
+  // Strip comments first — the header prose intentionally mentions the OLD
+  // `import(resolve(__dirname,...))` form it replaced.
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  assert.ok(
+    !/\bimport\s*\(/.test(code),
+    'source dispatcher must contain NO dynamic import() (fully static for esbuild)',
+  );
 });
 
 // ---------------------------------------------------------------------------
