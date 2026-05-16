@@ -393,6 +393,164 @@ test("wordDiff is reversible and deterministic for arbitrary text", () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// AC-P4 (Phase 2 / Milestone P0): structural diff classifies v2 blocks.
+//
+//   v2u   unchanged  — identical diagram block, identical position.
+//   v2m   modified   — fileChange.rationale text changed (TEXT_FIELDS word
+//                      diff over a v2 text-bearing field).
+//   v2nt  modified   — tradeoff.options[].score (a NON-text v2 field) changed
+//                      ⇒ modified via structural equality, NO fieldDiffs.
+//   v2tbl modified   — table.rows changed; `table` is OMITTED from
+//                      TEXT_FIELDS, so structural equality classifies it
+//                      modified with NO word-diff (correct for tables).
+//   v2mv  moved       — code block, identical content, relative order changed.
+// ---------------------------------------------------------------------------
+
+const prevPrd = {
+  schemaVersion: 1,
+  type: "prd",
+  id: "prd-1",
+  title: "v2 diff fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 1 },
+  blocks: [
+    { id: "v2u", kind: "diagram", mermaid: "graph TD; A-->B;" },
+    {
+      id: "v2m",
+      kind: "fileChange",
+      path: "src/prd/store.mjs",
+      action: "add",
+      rationale: "Initial append-only persistence layer.",
+    },
+    {
+      id: "v2nt",
+      kind: "tradeoff",
+      axis: "Storage backend",
+      options: [
+        { label: "Postgres", score: 7 },
+        { label: "SQLite", score: 5 },
+      ],
+    },
+    {
+      id: "v2tbl",
+      kind: "table",
+      columns: ["Field", "Type"],
+      rows: [["id", "string"]],
+    },
+    { id: "v2mv", kind: "code", lang: "js", content: "const x = 1;\n" },
+  ],
+};
+
+const nextPrd = {
+  schemaVersion: 1,
+  type: "prd",
+  id: "prd-1",
+  title: "v2 diff fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 2 },
+  blocks: [
+    // v2mv moved to the top (index 4 -> 0), content identical.
+    { id: "v2mv", kind: "code", lang: "js", content: "const x = 1;\n" },
+    { id: "v2u", kind: "diagram", mermaid: "graph TD; A-->B;" },
+    {
+      // rationale text changed ⇒ modified with a word-diff over `rationale`.
+      id: "v2m",
+      kind: "fileChange",
+      path: "src/prd/store.mjs",
+      action: "add",
+      rationale: "Revised append-only persistence layer with locking.",
+    },
+    {
+      // Only a non-text field (score) changed ⇒ modified, NO fieldDiffs.
+      id: "v2nt",
+      kind: "tradeoff",
+      axis: "Storage backend",
+      options: [
+        { label: "Postgres", score: 9 },
+        { label: "SQLite", score: 5 },
+      ],
+    },
+    {
+      // rows changed; table omitted from TEXT_FIELDS ⇒ modified, no word-diff.
+      id: "v2tbl",
+      kind: "table",
+      columns: ["Field", "Type"],
+      rows: [
+        ["id", "string"],
+        ["title", "string"],
+      ],
+    },
+  ],
+};
+
+test("AC-P4 v2 blocks classify correctly (text/non-text/table/move)", () => {
+  const r = diffDocuments(prevPrd, nextPrd);
+
+  assert.equal(r.byId.v2u.status, DIFF_STATUS.UNCHANGED, "v2u unchanged");
+  assert.equal(r.byId.v2mv.status, DIFF_STATUS.MOVED, "v2mv moved (code)");
+  assert.equal(r.byId.v2m.status, DIFF_STATUS.MODIFIED, "v2m modified");
+  assert.equal(
+    r.byId.v2nt.status,
+    DIFF_STATUS.MODIFIED,
+    "non-text v2 field change ⇒ modified via structural equality",
+  );
+  assert.equal(
+    r.byId.v2tbl.status,
+    DIFF_STATUS.MODIFIED,
+    "table.rows change ⇒ modified (structural equality, table omitted)",
+  );
+});
+
+test("AC-P4 v2 text-bearing field gets a word-diff (fileChange.rationale)", () => {
+  const r = diffDocuments(prevPrd, nextPrd);
+  const v2m = r.byId.v2m;
+  assert.ok(v2m.fieldDiffs, "v2m must carry fieldDiffs");
+  const rationale = v2m.fieldDiffs.find((f) => f.field === "rationale");
+  assert.ok(rationale, "fileChange.rationale must be word-diffed");
+  // `path` is unchanged → must NOT appear in fieldDiffs.
+  assert.ok(
+    !v2m.fieldDiffs.some((f) => f.field === "path"),
+    "unchanged fileChange.path must be omitted from fieldDiffs",
+  );
+  const added = rationale.runs
+    .filter((x) => x.type === "added")
+    .map((x) => x.value)
+    .join("");
+  assert.ok(
+    added.includes("Revised") && added.includes("locking"),
+    "rationale word-diff must mark the inserted words",
+  );
+});
+
+test("AC-P4 non-text v2 field change carries NO word-diff (tradeoff.score)", () => {
+  const r = diffDocuments(prevPrd, nextPrd);
+  const v2nt = r.byId.v2nt;
+  // tradeoff TEXT_FIELDS is ["axis"]; axis unchanged ⇒ fieldDiffs empty.
+  assert.deepEqual(
+    v2nt.fieldDiffs,
+    [],
+    "score-only change ⇒ modified via structural equality, no fieldDiffs",
+  );
+});
+
+test("AC-P4 table change carries NO word-diff (table omitted from TEXT_FIELDS)", () => {
+  const r = diffDocuments(prevPrd, nextPrd);
+  const v2tbl = r.byId.v2tbl;
+  assert.deepEqual(
+    v2tbl.fieldDiffs,
+    [],
+    "table is intentionally omitted from TEXT_FIELDS — structural equality only",
+  );
+});
+
+test("AC-P4 v2 diff is deterministic (byte-identical across runs)", () => {
+  const a = diffDocuments(prevPrd, nextPrd);
+  const b = diffDocuments(
+    JSON.parse(JSON.stringify(prevPrd)),
+    JSON.parse(JSON.stringify(nextPrd)),
+  );
+  assert.equal(JSON.stringify(a), JSON.stringify(b));
+});
+
 console.log("");
 console.log(`Structural diff tests: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

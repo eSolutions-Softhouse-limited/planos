@@ -97,6 +97,15 @@ const PRIMARY_FIELD = Object.freeze({
   openQuestion: ["question"],
   prose: ["md"],
   risk: ["description"],
+  // v2 kinds — each maps to its primary narrative field (mirrors the
+  // structural-diff TEXT_FIELDS choice). `table` has no narrative text; its
+  // first column header is the most stable identity signal available.
+  phase: ["title"],
+  tradeoff: ["axis"],
+  fileChange: ["path"],
+  code: ["filename", "content"],
+  table: ["columns"],
+  diagram: ["mermaid"],
 });
 
 /** prose's primary text is the FIRST 200 chars of `md` (AC-13). */

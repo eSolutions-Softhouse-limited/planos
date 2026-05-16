@@ -545,9 +545,12 @@ export function BlockRenderer({
       );
       break;
     default: {
-      // Exhaustiveness guard — every v1 kind must be handled above.
-      const _never: never = block;
-      body = <pre>{JSON.stringify(_never)}</pre>;
+      // v1 kinds are all handled above. v2 kinds (phase/tradeoff/fileChange/
+      // code/table/diagram) are part of the type union from Milestone P0 but
+      // their kind-specific *View renderers land in Milestone P4 — until then
+      // they fall back to a raw structural view (no crash, comment affordance
+      // still works via BlockShell). NOT a real renderer; P4 owns that.
+      body = <pre>{JSON.stringify(block, null, 2)}</pre>;
     }
   }
 

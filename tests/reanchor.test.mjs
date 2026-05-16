@@ -447,6 +447,102 @@ test("AC-13 false-attach rate across the suite is exactly 0", () => {
   assert.equal(rate, 0, "false-attach rate must be exactly 0 (AC-13)");
 });
 
+// ---------------------------------------------------------------------------
+// AC-P4 (Phase 2 / Milestone P0): re-anchoring over v2 primary-text fields.
+//
+// The agent re-minted ids on a PRD revision (the AC-13 failure case) for v2
+// blocks. The PRIMARY_FIELD map must resolve each v2 kind's primary narrative
+// field so comments carry forward correctly:
+//   phase→title, tradeoff→axis, fileChange→path, code→filename/content,
+//   diagram→mermaid. `table` has no narrative text ⇒ score 0 ⇒ never carries
+//   (conservative, correct).
+// ---------------------------------------------------------------------------
+
+const prevPrdRA = {
+  schemaVersion: 1,
+  type: "prd",
+  id: "prd-9",
+  title: "v2 reanchor fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 1 },
+  blocks: [
+    { id: "ph-old", kind: "phase", title: "Foundation hardening phase", taskIds: [] },
+    {
+      id: "fc-old",
+      kind: "fileChange",
+      path: "src/prd/store.mjs",
+      action: "add",
+      rationale: "append-only persistence",
+    },
+  ],
+};
+
+const nextPrdRA = {
+  schemaVersion: 1,
+  type: "prd",
+  id: "prd-9",
+  title: "v2 reanchor fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 2 },
+  blocks: [
+    {
+      // id re-minted; title intent identical ⇒ strong, unambiguous carry.
+      id: "ph-new",
+      kind: "phase",
+      title: "Foundation hardening phase",
+      taskIds: ["t1"],
+    },
+    {
+      // id re-minted; path identical ⇒ unambiguous carry over fileChange→path.
+      id: "fc-new",
+      kind: "fileChange",
+      path: "src/prd/store.mjs",
+      action: "modify",
+      rationale: "now with locking",
+    },
+  ],
+};
+
+test("AC-P4 sim() resolves v2 primary fields (phase→title, fileChange→path)", () => {
+  const a = { id: "1", kind: "phase", title: "Foundation hardening phase" };
+  const b = { id: "2", kind: "phase", title: "foundation, hardening! phase" };
+  assert.equal(sim(a, b), 1, "phase primary field is `title` (normalized)");
+
+  const f1 = { id: "3", kind: "fileChange", path: "src/prd/store.mjs" };
+  const f2 = { id: "4", kind: "fileChange", path: "src/prd/store.mjs" };
+  assert.equal(sim(f1, f2), 1, "fileChange primary field is `path`");
+
+  const t1 = { id: "5", kind: "tradeoff", axis: "storage backend" };
+  const t2 = { id: "6", kind: "tradeoff", axis: "storage backend" };
+  assert.equal(sim(t1, t2), 1, "tradeoff primary field is `axis`");
+
+  const d1 = { id: "7", kind: "diagram", mermaid: "graph TD; A-->B;" };
+  const d2 = { id: "8", kind: "diagram", mermaid: "graph TD; A-->B;" };
+  assert.equal(sim(d1, d2), 1, "diagram primary field is `mermaid`");
+
+  // table has no string primary text ⇒ score 0 (conservative, never carries).
+  const tb1 = { id: "9", kind: "table", columns: ["a"], rows: [] };
+  const tb2 = { id: "10", kind: "table", columns: ["a"], rows: [] };
+  assert.equal(sim(tb1, tb2), 0, "table carries no narrative text ⇒ 0");
+});
+
+test("AC-P4 re-minted v2 ids ⇒ comments carry to correct new v2 blocks", () => {
+  const v2Comments = [
+    { commentId: "vc1", blockId: "ph-old", text: "scope creep risk" },
+    { commentId: "vc2", blockId: "fc-old", text: "needs a migration note" },
+  ];
+  const result = reanchorComments(prevPrdRA, nextPrdRA, v2Comments);
+
+  const vc1 = result.reattached.find((r) => r.commentId === "vc1");
+  assert.ok(vc1, "vc1 must re-attach (unambiguous phase title match)");
+  assert.equal(vc1.toId, "ph-new", "vc1 carries to the re-minted phase block");
+  assert.equal(vc1.flagged, true, "carried comments must be flagged for verify");
+  accountAttach(vc1, "ph-new");
+
+  const vc2 = result.reattached.find((r) => r.commentId === "vc2");
+  assert.ok(vc2, "vc2 must re-attach (unambiguous fileChange path match)");
+  assert.equal(vc2.toId, "fc-new", "vc2 carries to the re-minted fileChange");
+  accountAttach(vc2, "fc-new");
+});
+
 console.log("");
 console.log(`Re-anchoring tests: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

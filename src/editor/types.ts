@@ -76,6 +76,60 @@ export interface OpenQuestionBlock {
   answer?: string;
 }
 
+// ---------------------------------------------------------------------------
+// v2 block kinds (PRD-scoped — design.md §4). Mirror of src/schema/types.d.ts;
+// keep both in sync. Runtime mirror is src/schema/validate.mjs.
+// ---------------------------------------------------------------------------
+
+export interface PhaseBlock {
+  id: string;
+  kind: 'phase';
+  title: string;
+  taskIds: string[];
+}
+
+export interface TradeoffOption {
+  label: string;
+  score?: number;
+  note?: string;
+}
+
+export interface TradeoffBlock {
+  id: string;
+  kind: 'tradeoff';
+  axis: string;
+  options: TradeoffOption[];
+}
+
+export interface FileChangeBlock {
+  id: string;
+  kind: 'fileChange';
+  path: string;
+  action: 'add' | 'modify' | 'delete';
+  rationale: string;
+}
+
+export interface CodeBlock {
+  id: string;
+  kind: 'code';
+  lang: string;
+  content: string;
+  filename?: string;
+}
+
+export interface TableBlock {
+  id: string;
+  kind: 'table';
+  columns: string[];
+  rows: string[][];
+}
+
+export interface DiagramBlock {
+  id: string;
+  kind: 'diagram';
+  mermaid: string;
+}
+
 export type Block =
   | SectionBlock
   | ProseBlock
@@ -83,7 +137,13 @@ export type Block =
   | TaskBlock
   | DecisionBlock
   | RiskBlock
-  | OpenQuestionBlock;
+  | OpenQuestionBlock
+  | PhaseBlock
+  | TradeoffBlock
+  | FileChangeBlock
+  | CodeBlock
+  | TableBlock
+  | DiagramBlock;
 
 export type BlockKind = Block['kind'];
 

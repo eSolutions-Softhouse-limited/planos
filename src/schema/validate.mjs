@@ -23,7 +23,24 @@ export const V1_KINDS = Object.freeze([
   "openQuestion",
 ]);
 
+/**
+ * The exact v2 block kinds (design.md §4 lines 143-149), in canonical order.
+ * v2 kinds are PRD-scoped: only accepted in `type:"prd"` documents (D5(i) —
+ * keeps the plan-mode v1 contract tight). A `type:"prd"` doc accepts v1∪v2.
+ */
+export const V2_KINDS = Object.freeze([
+  "phase",
+  "tradeoff",
+  "fileChange",
+  "code",
+  "table",
+  "diagram",
+]);
+
 const KIND_LIST = V1_KINDS.join("|");
+const V2_KIND_SET = new Set(V2_KINDS);
+const PRD_KIND_LIST = V1_KINDS.concat(V2_KINDS).join("|");
+const FILE_CHANGE_ACTIONS = Object.freeze(["add", "modify", "delete"]);
 const DOC_STATUS = Object.freeze(["draft", "in-review", "approved"]);
 const TASK_STATUS = Object.freeze(["todo", "doing", "done", "cut"]);
 const LMH = Object.freeze(["L", "M", "H"]);
@@ -90,6 +107,25 @@ function checkEnum(holder, key, allowed, path, errors) {
       `${path}.${key} ${show(v)} is not a valid value (expected one of ${allowed.join(
         "|",
       )})`,
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validate that an optional numeric field is a finite number when present.
+ * Pushes a field-level error and returns false on a non-number value; returns
+ * true when the value is absent (optional) or a finite number.
+ */
+function checkNumber(holder, key, path, errors) {
+  const v = holder[key];
+  if (v === undefined) return true;
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    errors.push(
+      `${path}.${key} optional field must be a finite number when present but is ${show(
+        v,
+      )}`,
     );
     return false;
   }
@@ -286,10 +322,143 @@ const KIND_VALIDATORS = {
       );
     }
   },
+
+  // --- v2 kinds (PRD-scoped; design.md §4 lines 143-149) -------------------
+
+  phase(b, path, errors) {
+    requireString(b, "title", path, errors);
+    // taskIds: agent-authored id[] like v1 task.deps — NO referential graph
+    // check (D5(iii); no blocking-path graph walk).
+    if (b.taskIds === undefined) {
+      errors.push(
+        `${path} (phase) missing required field 'taskIds' (id[] — string[] of task block ids)`,
+      );
+    } else {
+      checkStringArray(b.taskIds, `${path}.taskIds`, "phase.taskIds", errors);
+    }
+  },
+
+  tradeoff(b, path, errors) {
+    requireString(b, "axis", path, errors);
+    if (!Array.isArray(b.options)) {
+      errors.push(
+        `${path} (tradeoff) missing required field 'options' ({label,score?,note?}[]) — got ${show(
+          b.options,
+        )}`,
+      );
+    } else {
+      if (b.options.length === 0) {
+        errors.push(
+          `${path}.options (tradeoff) must contain at least one option`,
+        );
+      }
+      for (let i = 0; i < b.options.length; i++) {
+        const opt = b.options[i];
+        const optPath = `${path}.options[${i}]`;
+        if (!isObject(opt)) {
+          errors.push(
+            `${optPath} must be an object {label,score?,note?} but is ${show(
+              opt,
+            )}`,
+          );
+          continue;
+        }
+        if (!isNonEmptyString(opt.label)) {
+          errors.push(
+            `${optPath}.label is required and must be a non-empty string but is ${show(
+              opt.label,
+            )}`,
+          );
+        }
+        checkNumber(opt, "score", optPath, errors);
+        if (opt.note !== undefined && !isString(opt.note)) {
+          errors.push(
+            `${optPath}.note optional field must be a string when present but is ${show(
+              opt.note,
+            )}`,
+          );
+        }
+      }
+    }
+  },
+
+  fileChange(b, path, errors) {
+    requireString(b, "path", path, errors);
+    if (b.action === undefined) {
+      errors.push(
+        `${path} (fileChange) missing required field 'action' (one of ${FILE_CHANGE_ACTIONS.join(
+          "|",
+        )})`,
+      );
+    } else {
+      checkEnum(b, "action", FILE_CHANGE_ACTIONS, path, errors);
+    }
+    requireString(b, "rationale", path, errors);
+  },
+
+  code(b, path, errors) {
+    requireString(b, "lang", path, errors);
+    // content must be a string but MAY be empty (isString, not isNonEmpty).
+    if (!isString(b.content)) {
+      errors.push(
+        `${path} (code) missing required field 'content' (string, may be empty) — got ${show(
+          b.content,
+        )}`,
+      );
+    }
+    if (b.filename !== undefined && !isString(b.filename)) {
+      errors.push(
+        `${path} (code) optional field 'filename' must be a string when present but is ${show(
+          b.filename,
+        )}`,
+      );
+    }
+  },
+
+  table(b, path, errors) {
+    const columnsOk = checkStringArray(
+      b.columns,
+      `${path}.columns`,
+      "table.columns",
+      errors,
+    );
+    if (!Array.isArray(b.rows)) {
+      errors.push(
+        `${path} (table) missing required field 'rows' (string[][]) — got ${show(
+          b.rows,
+        )}`,
+      );
+      return;
+    }
+    const colLen = Array.isArray(b.columns) ? b.columns.length : null;
+    for (let i = 0; i < b.rows.length; i++) {
+      const row = b.rows[i];
+      const rowOk = checkStringArray(
+        row,
+        `${path}.rows[${i}]`,
+        "table.row",
+        errors,
+      );
+      // D5(ii): row/column-length mismatch is a HARD field-level error
+      // (agent-correctable via the deny→revise loop).
+      if (rowOk && columnsOk && colLen !== null && row.length !== colLen) {
+        errors.push(
+          `${path}.rows[${i}] (table) has ${row.length} cell(s) but the table declares ${colLen} column(s) — every row length must equal columns.length`,
+        );
+      }
+    }
+  },
+
+  diagram(b, path, errors) {
+    requireString(b, "mermaid", path, errors);
+  },
 };
 
-function validateBlock(block, index, errors) {
+function validateBlock(block, index, errors, docType) {
   const path = `blocks[${index}]`;
+  // v2 kinds are PRD-scoped (D5(i)): only `type:"prd"` documents accept them.
+  const isPrd = docType === "prd";
+  const validKindList = isPrd ? PRD_KIND_LIST : KIND_LIST;
   if (!isObject(block)) {
     errors.push(`${path} must be an object but is ${show(block)}`);
     return;
@@ -303,9 +472,21 @@ function validateBlock(block, index, errors) {
   }
   if (!isString(block.kind)) {
     errors.push(
-      `${path}.kind is required and must be a string (one of ${KIND_LIST}) but is ${show(
+      `${path}.kind is required and must be a string (one of ${validKindList}) but is ${show(
         block.kind,
       )}`,
+    );
+    return;
+  }
+  // A v2 kind in a non-PRD document is a field-level rejection: keeps the
+  // plan-mode v1 contract tight (D5(i)).
+  if (!isPrd && V2_KIND_SET.has(block.kind)) {
+    errors.push(
+      `${path}.kind ${show(
+        block.kind,
+      )} is a v2 PRD-only kind and is not allowed in a type:'${
+        docType === undefined ? "plan" : docType
+      }' document (expected one of ${KIND_LIST}; v2 kinds require type:'prd')`,
     );
     return;
   }
@@ -314,7 +495,9 @@ function validateBlock(block, index, errors) {
     errors.push(
       `${path}.kind ${show(
         block.kind,
-      )} is not a valid v1 kind (expected one of ${KIND_LIST})`,
+      )} is not a valid ${
+        isPrd ? "v1∪v2" : "v1"
+      } kind (expected one of ${validKindList})`,
     );
     return;
   }
@@ -425,7 +608,7 @@ export function validateDocument(obj) {
       );
     }
     for (let i = 0; i < obj.blocks.length; i++) {
-      validateBlock(obj.blocks[i], i, errors);
+      validateBlock(obj.blocks[i], i, errors, obj.type);
     }
   }
 

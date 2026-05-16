@@ -96,7 +96,70 @@ export interface OpenQuestionBlock {
   answer?: string;
 }
 
-/** v1 core discriminated union — discriminant is `kind`. */
+// ---------------------------------------------------------------------------
+// v2 block kinds (PRD-scoped — design.md §4 lines 143-149). The runtime mirror
+// is `validate.mjs` (V2_KINDS + KIND_VALIDATORS). v2 kinds are accepted ONLY
+// in `type:"prd"` documents; a `type:"prd"` document accepts v1∪v2.
+// ---------------------------------------------------------------------------
+
+/** A delivery phase grouping `task` blocks by id (agent-authored, unchecked). */
+export interface PhaseBlock {
+  id: string;
+  kind: "phase";
+  title: string;
+  /** Block ids of the `task` blocks in this phase (like v1 `task.deps`). */
+  taskIds: string[];
+}
+
+/** A single weighed option inside a `tradeoff` block. */
+export interface TradeoffOption {
+  label: string;
+  score?: number;
+  note?: string;
+}
+
+/** A decision axis with scored options. */
+export interface TradeoffBlock {
+  id: string;
+  kind: "tradeoff";
+  axis: string;
+  options: TradeoffOption[];
+}
+
+/** A planned filesystem change with rationale. */
+export interface FileChangeBlock {
+  id: string;
+  kind: "fileChange";
+  path: string;
+  action: "add" | "modify" | "delete";
+  rationale: string;
+}
+
+/** A code snippet. `content` may be empty. */
+export interface CodeBlock {
+  id: string;
+  kind: "code";
+  lang: string;
+  content: string;
+  filename?: string;
+}
+
+/** A tabular block. Every `rows` entry length must equal `columns.length`. */
+export interface TableBlock {
+  id: string;
+  kind: "table";
+  columns: string[];
+  rows: string[][];
+}
+
+/** A mermaid diagram source. */
+export interface DiagramBlock {
+  id: string;
+  kind: "diagram";
+  mermaid: string;
+}
+
+/** v1∪v2 discriminated union — discriminant is `kind`. */
 export type Block =
   | SectionBlock
   | ProseBlock
@@ -104,9 +167,15 @@ export type Block =
   | TaskBlock
   | DecisionBlock
   | RiskBlock
-  | OpenQuestionBlock;
+  | OpenQuestionBlock
+  | PhaseBlock
+  | TradeoffBlock
+  | FileChangeBlock
+  | CodeBlock
+  | TableBlock
+  | DiagramBlock;
 
-/** Set of valid v1 `kind` discriminants. */
+/** Set of valid v1∪v2 `kind` discriminants. */
 export type BlockKind = Block["kind"];
 
 export interface DocumentMeta {

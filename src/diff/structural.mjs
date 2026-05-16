@@ -43,6 +43,14 @@ const TEXT_FIELDS = Object.freeze({
   decision: ["question"],
   risk: ["description", "mitigation"],
   openQuestion: ["question", "answer"],
+  // v2 kinds — text-bearing fields only (design.md §4). `table` is
+  // INTENTIONALLY omitted: its content is purely structural (columns/rows),
+  // so canonical structural equality is the correct change detector for it.
+  phase: ["title"],
+  tradeoff: ["axis"],
+  fileChange: ["path", "rationale"],
+  code: ["content"],
+  diagram: ["mermaid"],
 });
 
 const isObject = (v) =>
