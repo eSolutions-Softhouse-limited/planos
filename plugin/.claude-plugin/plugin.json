@@ -1,6 +1,21 @@
 {
   "name": "planos",
-  "version": "0.1.0",
-  "description": "Structured-block plan review plugin for Claude Code",
-  "author": "esolutions.gr"
+  "version": "1.0.0",
+  "description": "Structured-block plan/PRD/diff-review plugin for Claude Code: the agent authors plans, PRDs, and diff reviews as a structured block document rendered in a rich, offline, single-file browser editor with a local-server round-trip. Fully offline, zero runtime dependencies.",
+  "author": {
+    "name": "esolutions.gr",
+    "url": "https://github.com/eSolutions-Softhouse-limited/planos"
+  },
+  "homepage": "https://github.com/eSolutions-Softhouse-limited/planos#readme",
+  "repository": "https://github.com/eSolutions-Softhouse-limited/planos",
+  "license": "UNLICENSED",
+  "keywords": [
+    "plan",
+    "prd",
+    "diff-review",
+    "code-review",
+    "plan-mode",
+    "offline",
+    "structured-document"
+  ]
 }

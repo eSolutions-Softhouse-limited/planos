@@ -1,4 +1,8 @@
 {
+  "name": "esolutions-planos",
+  "owner": {
+    "name": "esolutions.gr"
+  },
   "plugins": [
     {
       "name": "planos",
