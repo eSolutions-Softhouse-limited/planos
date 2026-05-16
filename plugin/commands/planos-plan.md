@@ -22,6 +22,22 @@ Your job: conduct a focused, adaptive interview in this terminal conversation to
 4. **Targeted, not exhaustive.** Do not ask about every possible dimension. Focus on the questions whose answers would materially change the plan's structure or priorities.
 5. **No leading questions.** Do not suggest the answer inside the question. Keep questions open or neutrally binary.
 6. **Graceful interruption / early-exit (mandatory).** See the dedicated section below — this rule is load-bearing for AC-16.
+7. **Ask every question via the `AskUserQuestion` tool — never plain prose.** See the dedicated section below — this rule is load-bearing for the interview UX.
+
+### How to ask each question (AskUserQuestion — load-bearing)
+
+Every interview question MUST be asked through the `AskUserQuestion` tool — never as free prose in the conversation body. A plain-text question is the single most common reason this interview feels flat: the tool is what gives the user the rich, clickable, one-question-at-a-time experience with suggested answers (the same experience a first-class Socratic interview provides).
+
+Rules for each `AskUserQuestion` call:
+
+1. **Exactly one question per call.** One `AskUserQuestion`, one question object — this is how "one question at a time" is enforced mechanically. Never batch.
+2. **Always offer 2–4 concrete, contextual options.** Derive them from `$ARGUMENTS` and the answers so far. They must be specific, opinionated, and mutually exclusive — real candidate goals, scopes, or trade-offs — not a generic "Yes / No / Maybe". The user can always pick "Other" and free-type (and attach notes), so options never trap the answer; they accelerate it.
+3. **Give every option a one-line `description`** stating what choosing it implies for the resulting plan.
+4. **Use a ≤12-char `header`** naming the dimension being probed (e.g. `Goal`, `Scope`, `Constraints`, `Trade-off`, `Risk`).
+5. **Adapt from the answer.** The next `AskUserQuestion` must target the weakest or most ambiguous dimension the last answer exposed — do not walk a fixed script.
+6. **Early-exit still applies.** If the chosen option or free-text is an interruption signal (see below), stop immediately and follow the graceful-degradation path — do not ask another `AskUserQuestion`.
+
+The interruption fallback path is the one place you may proceed WITHOUT an `AskUserQuestion` (you stop asking entirely). Every other question in this phase — including the opening question and the final "does this capture the intent?" confirmation — goes through `AskUserQuestion`.
 
 ### Graceful interruption / early-exit (AC-16 — load-bearing)
 

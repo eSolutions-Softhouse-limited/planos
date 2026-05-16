@@ -1,10 +1,13 @@
 {
-  "active": true,
-  "started_at": "2026-05-16T09:16:33.188Z",
-  "original_prompt": "I'd like you to continue with the /autopilot",
-  "session_id": "bb21a0bc-0d72-4b2b-a64c-3c0d5db2fd33",
-  "project_path": "/Users/ggiak/www/esolutions.gr/planos",
-  "reinforcement_count": 6,
-  "awaiting_confirmation_set_at": "2026-05-16T09:16:33.188Z",
-  "last_checked_at": "2026-05-16T09:55:56.983Z"
+  "active": false,
+  "current_phase": "complete",
+  "completed_at": "2026-05-16T10:05:00.000Z",
+  "outcome": "Phase 1 COMPLETE — 26/26 PRD stories pass; Phase 1 exit gate PASS (3 groups separate, frozen bars untampered); production ID scheme = opaque (ADR 0001); committed 013e7cb on main",
+  "suite": "28/28 pass, tsc 0, AC-17 CLEAN",
+  "_meta": {
+    "mode": "autopilot",
+    "sessionId": "bb21a0bc-0d72-4b2b-a64c-3c0d5db2fd33",
+    "updatedAt": "2026-05-16T09:59:44.215Z",
+    "updatedBy": "state_write_tool"
+  }
 }

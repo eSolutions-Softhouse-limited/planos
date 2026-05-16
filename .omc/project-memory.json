@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; echo \"=== offline suite ===\"; node --test tests/*.test.mjs tests/harness/*.test.mjs 2>&1 | grep -E '^(ℹ |# )(tests|pass|fail|cancelled)'; echo \"=== tsc ===\"; npx tsc --noEmit 2>&1 | tail -1; echo \"tsc_exit=$?\"; echo \"=== AC-17 import-graph ===\"; node tests/harness/import-graph.mjs 2>&1 | tail -1; echo \"=== exit gate ===\"; node tests/harness/verify-exit-gate.mjs 2>&1 | tail -3; echo \"gate_exit=$?\"",
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos\ngit status --porcelain -- tests/ docs/ .omc/plans/progress.txt\ngit add tests/ac17-invariant.test.mjs docs/notes/markdown-export-boundary.md docs/adr/0004-phase4-polish-distribution.md docs/design.md docs/notes/plannotator-coexistence-spike.md .omc/plans/progress.txt\ngit commit --quiet -m \"Phase 4 Q5: AC-17 negative re-assertion + exit gate + ADR-0004 + §10 closure (CLOSEOUT)\n\n- ac17-invariant.test.mjs: NEW LAYER 1b NEGATIVE assertion (Q5/AC-Q12) —\n  ac17Roots() deepEqual the 14 Phase-1/2/3 roots (silent export/theme root\n  fails loudly); src/export/markdown.mjs + src/hook/export.mjs ABSENT from\n  the exit|prd|review blocking-HANDLER closure (the dispatcher legitimately\n  routes the out-of-blocking-path export subcommand — proof is over the\n  handlers, not the shared switch, per plan §4/§6); defensive SPA-only\n  theme.ts/export.tsx absent; closure non-vacuous + clean===true. 13/0.\n- docs/notes/markdown-export-boundary.md (NEW): out-of-blocking-path note\n  (negative proof stronger than audited-root inclusion; R1-doctrine on a\n  post-server CLI surface).\n- docs/adr/0004-phase4-polish-distribution.md (NEW, ACCEPTED): Q1–Q8 +\n  AC-Q-WAIVER + Consequences; mirrors ADR-0003.\n- design.md §10 plannotator row formally CLOSED (Resolved, Phase 4,\n  ADR-0004); plannotator-coexistence-spike.md status → RESOLVED — final\n  (Phase 4). NO change to src/hook/coexistence.mjs / coexistence.test.mjs\n  (Q7=keep-refuse — verified UNCHANGED).\n\nPhase 4 exit gate (AC-Q12/Q13/Q15/AC-Q-WAIVER; all active AC-Q green).\nIndependent verify: suite ×2 49/49/0; tsc=0; import-graph VERDICT CLEAN\n(ac17Roots UNCHANGED — negative proof, no new blocking root/carve-out);\nPhase-1 FROZEN gate 0; prd-smoke + review-smoke PASS; ac17-invariant 13/0;\ncoexistence/FROZEN_BARS UNCHANGED; src/+plugin/ untouched. Phases 1+2+3 NOT\nregressed.\n\nPHASE 4 COMPLETE — planos v1.0.0, all 4 phases done, design.md §3 COMPLETE.\"\ngit log --oneline -8",
     "testCommand": null,
     "lintCommand": null,
     "devCommand": null,
@@ -135,9 +135,39 @@
   },
   "hotPaths": [
     {
+      "path": "src/schema/validate.mjs",
+      "accessCount": 23,
+      "lastAccessed": 1778932438047,
+      "type": "file"
+    },
+    {
+      "path": "src/hook/exit.mjs",
+      "accessCount": 11,
+      "lastAccessed": 1778932804666,
+      "type": "file"
+    },
+    {
+      "path": "docs/design.md",
+      "accessCount": 7,
+      "lastAccessed": 1778940437549,
+      "type": "file"
+    },
+    {
       "path": "tests/fixtures/example.fixture.json",
       "accessCount": 6,
       "lastAccessed": 1778923867138,
+      "type": "file"
+    },
+    {
+      "path": "src/schema/id-strategy.mjs",
+      "accessCount": 5,
+      "lastAccessed": 1778926524400,
+      "type": "file"
+    },
+    {
+      "path": "src/hook/enter.mjs",
+      "accessCount": 5,
+      "lastAccessed": 1778926558068,
       "type": "file"
     },
     {
@@ -147,27 +177,9 @@
       "type": "file"
     },
     {
-      "path": "src/hook/enter.mjs",
-      "accessCount": 4,
-      "lastAccessed": 1778923307044,
-      "type": "file"
-    },
-    {
-      "path": "src/schema/id-strategy.mjs",
-      "accessCount": 4,
-      "lastAccessed": 1778924978935,
-      "type": "file"
-    },
-    {
       "path": "src/schema/index.mjs",
-      "accessCount": 3,
-      "lastAccessed": 1778923307251,
-      "type": "file"
-    },
-    {
-      "path": "src/schema/validate.mjs",
-      "accessCount": 3,
-      "lastAccessed": 1778923310510,
+      "accessCount": 4,
+      "lastAccessed": 1778926523120,
       "type": "file"
     },
     {
@@ -195,15 +207,15 @@
       "type": "file"
     },
     {
-      "path": "docs/design.md",
-      "accessCount": 1,
-      "lastAccessed": 1778923055631,
+      "path": "src/server/index.mjs",
+      "accessCount": 2,
+      "lastAccessed": 1778927433134,
       "type": "file"
     },
     {
-      "path": "src/hook/exit.mjs",
-      "accessCount": 1,
-      "lastAccessed": 1778923072871,
+      "path": "tests/exit-thinloop.test.mjs",
+      "accessCount": 2,
+      "lastAccessed": 1778927434852,
       "type": "file"
     },
     {
@@ -396,18 +408,6 @@
       "path": "tests/fixtures/invest-10-cost-spike-investigation.fixture.json",
       "accessCount": 1,
       "lastAccessed": 1778923613224,
-      "type": "file"
-    },
-    {
-      "path": "src/server/index.mjs",
-      "accessCount": 1,
-      "lastAccessed": 1778923689828,
-      "type": "file"
-    },
-    {
-      "path": "tests/exit-thinloop.test.mjs",
-      "accessCount": 1,
-      "lastAccessed": 1778923721735,
       "type": "file"
     },
     {

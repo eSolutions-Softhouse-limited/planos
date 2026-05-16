@@ -38,6 +38,22 @@ The diff is concrete, so this interview is **short and targeted** — not the op
 4. **Expose assumptions explicitly.** If an answer carries an unstated assumption that would change the review's focus, surface it: "You seem to be assuming X — is that the scope you want?" Then resolve it.
 5. **No leading questions.** Keep questions open or neutrally binary.
 6. **Graceful interruption / early-exit (mandatory).** See the dedicated section below — this rule is load-bearing for AC-R6.
+7. **Ask every question via the `AskUserQuestion` tool — never plain prose.** See the dedicated section below — this rule is load-bearing for the interview UX.
+
+### How to ask each question (AskUserQuestion — load-bearing)
+
+Every scope-grounding question MUST be asked through the `AskUserQuestion` tool — never as free prose in the conversation body. A plain-text question is the single most common reason this interview feels flat: the tool is what gives the user the rich, clickable, one-question-at-a-time experience with suggested answers (the same experience a first-class Socratic interview provides).
+
+Rules for each `AskUserQuestion` call:
+
+1. **Exactly one question per call.** One `AskUserQuestion`, one question object — this is how "one question at a time" is enforced mechanically. Never batch.
+2. **Always offer 2–4 concrete, contextual options.** Derive them from `$ARGUMENTS` and the diff/PR context. They must be specific and mutually exclusive — real candidate review focuses (e.g. `Correctness`, `Security`, a named subsystem, `General pass`) — not a generic "Yes / No / Maybe". The user can always pick "Other" and free-type (and attach notes), so options never trap the answer; they accelerate it.
+3. **Give every option a one-line `description`** stating what choosing it implies for the review focus.
+4. **Use a ≤12-char `header`** naming the dimension being probed (e.g. `Focus`, `Source`, `Scope`, `Risk`).
+5. **Adapt from the answer.** Any follow-up `AskUserQuestion` must target the weakest or most ambiguous dimension the last answer exposed — keep it to the minimum needed to scope the review.
+6. **Early-exit still applies.** If the chosen option or free-text is an interruption signal (see below), stop immediately and follow the graceful-degradation path — do not ask another `AskUserQuestion`.
+
+The interruption fallback path (and the single argument-shape disambiguation question, which may itself be an `AskUserQuestion`) are the only places interview flow deviates. Every other question in this phase — including the opening focus question and the final "does this capture the review scope?" confirmation — goes through `AskUserQuestion`.
 
 ### Graceful interruption / early-exit (AC-R6 — load-bearing)
 
