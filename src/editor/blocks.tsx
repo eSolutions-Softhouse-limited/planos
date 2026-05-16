@@ -10,6 +10,7 @@
 import { useState, type ReactNode } from 'react';
 import { Markdown } from './markdown';
 import { MermaidDiagram } from './mermaid';
+import { useTheme, type ThemeTokens } from './theme';
 import {
   type Block,
   type CodeBlock,
@@ -32,16 +33,19 @@ import {
 
 const TASK_STATUSES: TaskStatus[] = ['todo', 'doing', 'done', 'cut'];
 
-const STATUS_COLORS: Record<TaskStatus, { bg: string; fg: string }> = {
-  todo: { bg: '#e5e7eb', fg: '#374151' },
-  doing: { bg: '#dbeafe', fg: '#1e40af' },
-  done: { bg: '#dcfce7', fg: '#15803d' },
-  cut: { bg: '#fee2e2', fg: '#b91c1c' },
-};
+const statusColors = (
+  t: ThemeTokens
+): Record<TaskStatus, { bg: string; fg: string }> => ({
+  todo: { bg: t.statusTodoBg, fg: t.statusTodoFg },
+  doing: { bg: t.statusDoingBg, fg: t.statusDoingFg },
+  done: { bg: t.statusDoneBg, fg: t.statusDoneFg },
+  cut: { bg: t.statusCutBg, fg: t.statusCutFg },
+});
 
 const LMH_LABEL: Record<string, string> = { L: 'Low', M: 'Medium', H: 'High' };
 
 function KindBadge({ kind }: { kind: string }) {
+  const theme = useTheme();
   return (
     <span
       style={{
@@ -49,8 +53,8 @@ function KindBadge({ kind }: { kind: string }) {
         fontWeight: 700,
         textTransform: 'uppercase',
         letterSpacing: '0.06em',
-        color: '#64748b',
-        background: '#f1f5f9',
+        color: theme.textMuted,
+        background: theme.codeInlineBg,
         padding: '2px 7px',
         borderRadius: 4,
       }}
@@ -72,17 +76,18 @@ interface ShellProps {
 }
 
 function BlockShell({ block, comment, onComment, children }: ShellProps) {
+  const theme = useTheme();
   const [open, setOpen] = useState(comment.length > 0);
   return (
     <div
       data-block-id={block.id}
       data-block-kind={block.kind}
       style={{
-        border: '1px solid #e2e8f0',
+        border: `1px solid ${theme.border}`,
         borderRadius: 8,
         padding: '14px 16px',
         marginBottom: 12,
-        background: '#fff',
+        background: theme.surface,
       }}
     >
       <div
@@ -100,7 +105,7 @@ function BlockShell({ block, comment, onComment, children }: ShellProps) {
           aria-label="Toggle comment"
           style={{
             fontSize: 12,
-            color: comment ? '#2563eb' : '#94a3b8',
+            color: comment ? theme.accent : theme.textFaint,
             background: 'none',
             border: 'none',
             cursor: 'pointer',
@@ -124,7 +129,7 @@ function BlockShell({ block, comment, onComment, children }: ShellProps) {
             width: '100%',
             marginTop: 10,
             padding: '8px 10px',
-            border: '1px solid #cbd5e1',
+            border: `1px solid ${theme.borderStrong}`,
             borderRadius: 6,
             fontSize: 13,
             fontFamily: 'inherit',
@@ -142,6 +147,7 @@ function BlockShell({ block, comment, onComment, children }: ShellProps) {
 // ---------------------------------------------------------------------------
 
 function SectionView({ block }: { block: SectionBlock }) {
+  const theme = useTheme();
   const [collapsed, setCollapsed] = useState(Boolean(block.collapsed));
   const size = [22, 19, 17, 15, 14, 13][Math.min(block.level - 1, 5)] ?? 14;
   return (
@@ -157,17 +163,19 @@ function SectionView({ block }: { block: SectionBlock }) {
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          color: '#0f172a',
+          color: theme.text,
         }}
       >
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+        <span style={{ fontSize: 12, color: theme.textFaint }}>
           {collapsed ? '▶' : '▼'}
         </span>
         <span style={{ fontSize: size, fontWeight: 700 }}>{block.title}</span>
-        <span style={{ fontSize: 11, color: '#94a3b8' }}>H{block.level}</span>
+        <span style={{ fontSize: 11, color: theme.textFaint }}>
+          H{block.level}
+        </span>
       </button>
       {!collapsed && (
-        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 4 }}>
           (section group)
         </div>
       )}
@@ -176,23 +184,32 @@ function SectionView({ block }: { block: SectionBlock }) {
 }
 
 function ProseView({ block }: { block: ProseBlock }) {
+  const theme = useTheme();
   return (
-    <div style={{ color: '#1e293b', fontSize: 14 }}>
+    <div style={{ color: theme.textBody, fontSize: 14 }}>
       <Markdown source={block.md} />
     </div>
   );
 }
 
 function ObjectiveView({ block }: { block: ObjectiveBlock }) {
+  const theme = useTheme();
   return (
     <div>
-      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>
+      <div style={{ fontWeight: 600, color: theme.text, marginBottom: 6 }}>
         🎯 {block.text}
       </div>
-      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+      <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 4 }}>
         Success criteria
       </div>
-      <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#334155' }}>
+      <ul
+        style={{
+          margin: 0,
+          paddingLeft: 20,
+          fontSize: 13,
+          color: theme.textSubtle,
+        }}
+      >
         {block.successCriteria.map((c, i) => (
           <li key={i} style={{ margin: '2px 0' }}>
             {c}
@@ -210,11 +227,12 @@ interface TaskViewProps {
 }
 
 function TaskView({ block, patch, onPatch }: TaskViewProps) {
+  const theme = useTheme();
   const [editing, setEditing] = useState(false);
   const merged: TaskBlock = { ...block, ...patch };
 
   if (!editing) {
-    const c = STATUS_COLORS[merged.status];
+    const c = statusColors(theme)[merged.status];
     return (
       <div>
         <div
@@ -225,7 +243,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
             flexWrap: 'wrap',
           }}
         >
-          <span style={{ fontWeight: 600, color: '#0f172a' }}>
+          <span style={{ fontWeight: 600, color: theme.text }}>
             {merged.title}
           </span>
           <span
@@ -241,7 +259,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
             {merged.status}
           </span>
           {merged.estimate && (
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>
+            <span style={{ fontSize: 12, color: theme.textFaint }}>
               ~{merged.estimate}
             </span>
           )}
@@ -251,7 +269,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
             style={{
               marginLeft: 'auto',
               fontSize: 12,
-              color: '#2563eb',
+              color: theme.accent,
               background: 'none',
               border: 'none',
               cursor: 'pointer',
@@ -261,18 +279,18 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
           </button>
         </div>
         {merged.detail && (
-          <p style={{ fontSize: 13, color: '#475569', margin: '6px 0' }}>
+          <p style={{ fontSize: 13, color: theme.textDetail, margin: '6px 0' }}>
             {merged.detail}
           </p>
         )}
         {merged.deps.length > 0 && (
-          <div style={{ fontSize: 12, color: '#64748b', margin: '4px 0' }}>
+          <div style={{ fontSize: 12, color: theme.textMuted, margin: '4px 0' }}>
             depends on: {merged.deps.join(', ')}
           </div>
         )}
         {merged.acceptance.length > 0 && (
           <>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 6 }}>
               Acceptance
             </div>
             <ul
@@ -280,7 +298,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
                 margin: '2px 0 0',
                 paddingLeft: 20,
                 fontSize: 13,
-                color: '#334155',
+                color: theme.textSubtle,
               }}
             >
               {merged.acceptance.map((a, i) => (
@@ -298,7 +316,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
   // Edit mode — title / status / acceptance (AC-8).
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <label style={{ fontSize: 12, color: '#64748b' }}>
+      <label style={{ fontSize: 12, color: theme.textMuted }}>
         Title
         <input
           aria-label="Task title"
@@ -309,7 +327,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
             width: '100%',
             marginTop: 3,
             padding: '6px 9px',
-            border: '1px solid #cbd5e1',
+            border: `1px solid ${theme.borderStrong}`,
             borderRadius: 6,
             fontSize: 14,
             boxSizing: 'border-box',
@@ -317,7 +335,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
         />
       </label>
 
-      <label style={{ fontSize: 12, color: '#64748b' }}>
+      <label style={{ fontSize: 12, color: theme.textMuted }}>
         Status
         <select
           aria-label="Task status"
@@ -329,7 +347,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
             display: 'block',
             marginTop: 3,
             padding: '6px 9px',
-            border: '1px solid #cbd5e1',
+            border: `1px solid ${theme.borderStrong}`,
             borderRadius: 6,
             fontSize: 14,
           }}
@@ -342,7 +360,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
         </select>
       </label>
 
-      <label style={{ fontSize: 12, color: '#64748b' }}>
+      <label style={{ fontSize: 12, color: theme.textMuted }}>
         Acceptance (one per line)
         <textarea
           aria-label="Task acceptance"
@@ -362,7 +380,7 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
             width: '100%',
             marginTop: 3,
             padding: '6px 9px',
-            border: '1px solid #cbd5e1',
+            border: `1px solid ${theme.borderStrong}`,
             borderRadius: 6,
             fontSize: 13,
             fontFamily: 'inherit',
@@ -379,8 +397,8 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
           alignSelf: 'flex-start',
           fontSize: 13,
           padding: '6px 14px',
-          background: '#2563eb',
-          color: '#fff',
+          background: theme.accent,
+          color: theme.onAccent,
           border: 'none',
           borderRadius: 6,
           cursor: 'pointer',
@@ -393,9 +411,10 @@ function TaskView({ block, patch, onPatch }: TaskViewProps) {
 }
 
 function DecisionView({ block }: { block: DecisionBlock }) {
+  const theme = useTheme();
   return (
     <div>
-      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 8 }}>
+      <div style={{ fontWeight: 600, color: theme.text, marginBottom: 8 }}>
         ⚖ {block.question}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -405,27 +424,41 @@ function DecisionView({ block }: { block: DecisionBlock }) {
             <div
               key={i}
               style={{
-                border: `1px solid ${chosen ? '#86efac' : '#e2e8f0'}`,
-                background: chosen ? '#f0fdf4' : '#f8fafc',
+                border: `1px solid ${chosen ? theme.okBorder : theme.border}`,
+                background: chosen ? theme.okBg : theme.surfaceMuted,
                 borderRadius: 6,
                 padding: '8px 10px',
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>
+              <div
+                style={{ fontWeight: 600, fontSize: 13, color: theme.text }}
+              >
                 {opt.label}
                 {chosen && (
-                  <span style={{ color: '#15803d', marginLeft: 6 }}>
+                  <span style={{ color: theme.statusDoneFg, marginLeft: 6 }}>
                     ✓ chosen
                   </span>
                 )}
               </div>
               {opt.pros && opt.pros.length > 0 && (
-                <div style={{ fontSize: 12, color: '#15803d', marginTop: 4 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: theme.statusDoneFg,
+                    marginTop: 4,
+                  }}
+                >
                   + {opt.pros.join('; ')}
                 </div>
               )}
               {opt.cons && opt.cons.length > 0 && (
-                <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 2 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: theme.statusCutFg,
+                    marginTop: 2,
+                  }}
+                >
                   − {opt.cons.join('; ')}
                 </div>
               )}
@@ -434,7 +467,9 @@ function DecisionView({ block }: { block: DecisionBlock }) {
         })}
       </div>
       {block.rationale && (
-        <p style={{ fontSize: 13, color: '#475569', margin: '8px 0 0' }}>
+        <p
+          style={{ fontSize: 13, color: theme.textDetail, margin: '8px 0 0' }}
+        >
           <strong>Rationale:</strong> {block.rationale}
         </p>
       )}
@@ -443,12 +478,20 @@ function DecisionView({ block }: { block: DecisionBlock }) {
 }
 
 function RiskView({ block }: { block: RiskBlock }) {
+  const theme = useTheme();
   return (
     <div>
-      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>
+      <div style={{ fontWeight: 600, color: theme.text, marginBottom: 6 }}>
         ⚠ {block.description}
       </div>
-      <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#334155' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          fontSize: 13,
+          color: theme.textSubtle,
+        }}
+      >
         <span>
           Likelihood:{' '}
           <strong>{LMH_LABEL[block.likelihood] ?? block.likelihood}</strong>
@@ -457,7 +500,7 @@ function RiskView({ block }: { block: RiskBlock }) {
           Impact: <strong>{LMH_LABEL[block.impact] ?? block.impact}</strong>
         </span>
       </div>
-      <p style={{ fontSize: 13, color: '#475569', margin: '6px 0 0' }}>
+      <p style={{ fontSize: 13, color: theme.textDetail, margin: '6px 0 0' }}>
         <strong>Mitigation:</strong> {block.mitigation}
       </p>
     </div>
@@ -471,10 +514,11 @@ interface OpenQuestionViewProps {
 }
 
 function OpenQuestionView({ block, answer, onAnswer }: OpenQuestionViewProps) {
+  const theme = useTheme();
   const current = answer || block.answer || '';
   return (
     <div>
-      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>
+      <div style={{ fontWeight: 600, color: theme.text, marginBottom: 6 }}>
         ❓ {block.question}
       </div>
       <textarea
@@ -486,7 +530,7 @@ function OpenQuestionView({ block, answer, onAnswer }: OpenQuestionViewProps) {
         style={{
           width: '100%',
           padding: '8px 10px',
-          border: `1px solid ${current ? '#86efac' : '#fca5a5'}`,
+          border: `1px solid ${current ? theme.okBorder : theme.badBorder}`,
           borderRadius: 6,
           fontSize: 13,
           fontFamily: 'inherit',
@@ -495,7 +539,7 @@ function OpenQuestionView({ block, answer, onAnswer }: OpenQuestionViewProps) {
         }}
       />
       {!current && (
-        <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: theme.statusCutFg, marginTop: 4 }}>
           This question requires an answer.
         </div>
       )}
@@ -523,20 +567,21 @@ function PhaseView({
   block: PhaseBlock;
   byId: Record<string, Block>;
 }) {
+  const theme = useTheme();
   return (
     <div>
-      <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+      <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>
         🧭 {block.title}
       </div>
       {block.taskIds.length === 0 ? (
-        <div style={{ fontSize: 12, color: '#94a3b8' }}>(no tasks)</div>
+        <div style={{ fontSize: 12, color: theme.textFaint }}>(no tasks)</div>
       ) : (
         <ol
           style={{
             margin: 0,
             paddingLeft: 20,
             fontSize: 13,
-            color: '#334155',
+            color: theme.textSubtle,
           }}
         >
           {block.taskIds.map((tid, i) => {
@@ -550,7 +595,7 @@ function PhaseView({
               <li key={i} style={{ margin: '2px 0' }}>
                 {label}
                 {!resolved && (
-                  <span style={{ color: '#b45309', marginLeft: 6 }}>
+                  <span style={{ color: theme.warn, marginLeft: 6 }}>
                     (unresolved id)
                   </span>
                 )}
@@ -569,10 +614,12 @@ function TradeoffView({ block }: { block: TradeoffBlock }) {
     .map((o) => o.score)
     .filter((s): s is number => typeof s === 'number');
   const maxScore = scores.length > 0 ? Math.max(...scores, 1) : 1;
+  const theme = useTheme();
   return (
     <div>
-      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 8 }}>
-        ⚖ Trade-off: <span style={{ color: '#475569' }}>{block.axis}</span>
+      <div style={{ fontWeight: 600, color: theme.text, marginBottom: 8 }}>
+        ⚖ Trade-off:{' '}
+        <span style={{ color: theme.textDetail }}>{block.axis}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {block.options.map((opt, i) => {
@@ -584,8 +631,8 @@ function TradeoffView({ block }: { block: TradeoffBlock }) {
             <div
               key={i}
               style={{
-                border: '1px solid #e2e8f0',
-                background: '#f8fafc',
+                border: `1px solid ${theme.border}`,
+                background: theme.surfaceMuted,
                 borderRadius: 6,
                 padding: '8px 10px',
               }}
@@ -597,12 +644,12 @@ function TradeoffView({ block }: { block: TradeoffBlock }) {
                   justifyContent: 'space-between',
                   fontSize: 13,
                   fontWeight: 600,
-                  color: '#0f172a',
+                  color: theme.text,
                 }}
               >
                 <span>{opt.label}</span>
                 {hasScore && (
-                  <span style={{ fontSize: 12, color: '#64748b' }}>
+                  <span style={{ fontSize: 12, color: theme.textMuted }}>
                     {opt.score}
                   </span>
                 )}
@@ -612,7 +659,7 @@ function TradeoffView({ block }: { block: TradeoffBlock }) {
                   style={{
                     marginTop: 6,
                     height: 6,
-                    background: '#e2e8f0',
+                    background: theme.border,
                     borderRadius: 99,
                     overflow: 'hidden',
                   }}
@@ -621,14 +668,14 @@ function TradeoffView({ block }: { block: TradeoffBlock }) {
                     style={{
                       width: `${pct}%`,
                       height: '100%',
-                      background: '#2563eb',
+                      background: theme.accent,
                     }}
                   />
                 </div>
               )}
               {opt.note && (
                 <div
-                  style={{ fontSize: 12, color: '#475569', marginTop: 6 }}
+                  style={{ fontSize: 12, color: theme.textDetail, marginTop: 6 }}
                 >
                   {opt.note}
                 </div>
@@ -641,20 +688,20 @@ function TradeoffView({ block }: { block: TradeoffBlock }) {
   );
 }
 
-const FILE_ACTION_COLORS: Record<
-  FileChangeBlock['action'],
-  { bg: string; fg: string }
-> = {
-  add: { bg: '#dcfce7', fg: '#15803d' },
-  modify: { bg: '#dbeafe', fg: '#1e40af' },
-  delete: { bg: '#fee2e2', fg: '#b91c1c' },
-};
+const fileActionColors = (
+  t: ThemeTokens
+): Record<FileChangeBlock['action'], { bg: string; fg: string }> => ({
+  add: { bg: t.statusDoneBg, fg: t.statusDoneFg },
+  modify: { bg: t.statusDoingBg, fg: t.statusDoingFg },
+  delete: { bg: t.statusCutBg, fg: t.statusCutFg },
+});
 
 /** `fileChange`: action badge + monospace path + rationale. */
 function FileChangeView({ block }: { block: FileChangeBlock }) {
-  const c = FILE_ACTION_COLORS[block.action] ?? {
-    bg: '#e5e7eb',
-    fg: '#374151',
+  const theme = useTheme();
+  const c = fileActionColors(theme)[block.action] ?? {
+    bg: theme.statusTodoBg,
+    fg: theme.statusTodoFg,
   };
   return (
     <div>
@@ -685,13 +732,13 @@ function FileChangeView({ block }: { block: FileChangeBlock }) {
             fontFamily:
               'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
             fontSize: 13,
-            color: '#0f172a',
+            color: theme.text,
           }}
         >
           {block.path}
         </code>
       </div>
-      <p style={{ fontSize: 13, color: '#475569', margin: '8px 0 0' }}>
+      <p style={{ fontSize: 13, color: theme.textDetail, margin: '8px 0 0' }}>
         {block.rationale}
       </p>
     </div>
@@ -703,10 +750,11 @@ function FileChangeView({ block }: { block: FileChangeBlock }) {
  * NO syntax-highlight dependency (zero-dep constraint, plan §3).
  */
 function CodeView({ block }: { block: CodeBlock }) {
+  const theme = useTheme();
   return (
     <div
       style={{
-        border: '1px solid #e2e8f0',
+        border: `1px solid ${theme.border}`,
         borderRadius: 6,
         overflow: 'hidden',
       }}
@@ -717,8 +765,8 @@ function CodeView({ block }: { block: CodeBlock }) {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '6px 10px',
-          background: '#f1f5f9',
-          borderBottom: '1px solid #e2e8f0',
+          background: theme.codeInlineBg,
+          borderBottom: `1px solid ${theme.border}`,
           fontSize: 12,
         }}
       >
@@ -726,7 +774,7 @@ function CodeView({ block }: { block: CodeBlock }) {
           style={{
             fontFamily:
               'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-            color: '#475569',
+            color: theme.textDetail,
           }}
         >
           {block.filename ?? '(inline)'}
@@ -736,7 +784,7 @@ function CodeView({ block }: { block: CodeBlock }) {
             fontWeight: 700,
             textTransform: 'uppercase',
             letterSpacing: '0.04em',
-            color: '#64748b',
+            color: theme.textMuted,
           }}
         >
           {block.lang || 'text'}
@@ -746,8 +794,8 @@ function CodeView({ block }: { block: CodeBlock }) {
         style={{
           margin: 0,
           padding: '10px 12px',
-          background: '#0f172a',
-          color: '#e2e8f0',
+          background: theme.codeBg,
+          color: theme.codeText,
           fontSize: 12.5,
           lineHeight: 1.5,
           overflowX: 'auto',
@@ -764,6 +812,7 @@ function CodeView({ block }: { block: CodeBlock }) {
 
 /** `table`: a plain HTML table (columns header + string-cell rows). */
 function TableView({ block }: { block: TableBlock }) {
+  const theme = useTheme();
   return (
     <div style={{ overflowX: 'auto' }}>
       <table
@@ -781,8 +830,8 @@ function TableView({ block }: { block: TableBlock }) {
                 style={{
                   textAlign: 'left',
                   padding: '6px 10px',
-                  borderBottom: '2px solid #cbd5e1',
-                  color: '#334155',
+                  borderBottom: `2px solid ${theme.borderStrong}`,
+                  color: theme.textSubtle,
                   fontWeight: 700,
                 }}
               >
@@ -799,8 +848,8 @@ function TableView({ block }: { block: TableBlock }) {
                   key={ci}
                   style={{
                     padding: '6px 10px',
-                    borderBottom: '1px solid #e2e8f0',
-                    color: '#475569',
+                    borderBottom: `1px solid ${theme.border}`,
+                    color: theme.textDetail,
                     verticalAlign: 'top',
                   }}
                 >
@@ -832,25 +881,23 @@ function DiagramView({ block }: { block: DiagramBlock }) {
 // (NO new envelope op). The block-level comment affordance stays in BlockShell.
 // ---------------------------------------------------------------------------
 
-const DIFF_STATUS_COLORS: Record<
-  NonNullable<DiffBlock['status']>,
-  { bg: string; fg: string }
-> = {
-  added: { bg: '#dcfce7', fg: '#15803d' },
-  modified: { bg: '#dbeafe', fg: '#1e40af' },
-  deleted: { bg: '#fee2e2', fg: '#b91c1c' },
-  renamed: { bg: '#fef9c3', fg: '#854d0e' },
-  binary: { bg: '#e5e7eb', fg: '#374151' },
-};
+const diffStatusColors = (
+  t: ThemeTokens
+): Record<NonNullable<DiffBlock['status']>, { bg: string; fg: string }> => ({
+  added: { bg: t.statusDoneBg, fg: t.statusDoneFg },
+  modified: { bg: t.statusDoingBg, fg: t.statusDoingFg },
+  deleted: { bg: t.statusCutBg, fg: t.statusCutFg },
+  renamed: { bg: t.statusRenamedBg, fg: t.statusRenamedFg },
+  binary: { bg: t.statusTodoBg, fg: t.statusTodoFg },
+});
 
-const DIFF_LINE_STYLE: Record<
-  ' ' | '+' | '-',
-  { bg: string; fg: string }
-> = {
-  ' ': { bg: 'transparent', fg: '#e2e8f0' },
-  '+': { bg: 'rgba(34,197,94,0.18)', fg: '#86efac' },
-  '-': { bg: 'rgba(239,68,68,0.18)', fg: '#fca5a5' },
-};
+const diffLineStyle = (
+  t: ThemeTokens
+): Record<' ' | '+' | '-', { bg: string; fg: string }> => ({
+  ' ': { bg: 'transparent', fg: t.diffContextFg },
+  '+': { bg: t.diffAddBg, fg: t.diffAddFg },
+  '-': { bg: t.diffRemoveBg, fg: t.diffRemoveFg },
+});
 
 const HUNK_VERDICTS: HunkReview['verdict'][] = [
   'accept',
@@ -858,14 +905,20 @@ const HUNK_VERDICTS: HunkReview['verdict'][] = [
   'comment',
 ];
 
-const HUNK_VERDICT_COLORS: Record<
+const hunkVerdictColors = (
+  t: ThemeTokens
+): Record<
   HunkReview['verdict'],
   { bg: string; fg: string; border: string }
-> = {
-  accept: { bg: '#dcfce7', fg: '#15803d', border: '#86efac' },
-  reject: { bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' },
-  comment: { bg: '#dbeafe', fg: '#1e40af', border: '#93c5fd' },
-};
+> => ({
+  accept: { bg: t.statusDoneBg, fg: t.statusDoneFg, border: t.okBorder },
+  reject: { bg: t.statusCutBg, fg: t.statusCutFg, border: t.badBorder },
+  comment: {
+    bg: t.statusDoingBg,
+    fg: t.statusDoingFg,
+    border: t.infoBorder,
+  },
+});
 
 interface DiffViewProps {
   block: DiffBlock;
@@ -882,8 +935,9 @@ interface DiffViewProps {
  * (binary / rename stub, R6) renders a descriptive affordance, never crashes.
  */
 function DiffView({ block, review, onHunkReview }: DiffViewProps) {
+  const theme = useTheme();
   const status = block.status;
-  const badge = status ? DIFF_STATUS_COLORS[status] : null;
+  const badge = status ? diffStatusColors(theme)[status] : null;
   const hunks = Array.isArray(block.hunks) ? block.hunks : [];
 
   // Seed the per-hunk review from any pre-existing BlockComment in the doc
@@ -921,8 +975,8 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
               letterSpacing: '0.04em',
               padding: '2px 8px',
               borderRadius: 4,
-              background: (badge ?? { bg: '#e5e7eb' }).bg,
-              color: (badge ?? { fg: '#374151' }).fg,
+              background: (badge ?? { bg: theme.statusTodoBg }).bg,
+              color: (badge ?? { fg: theme.statusTodoFg }).fg,
             }}
           >
             {status}
@@ -933,7 +987,7 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
             fontFamily:
               'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
             fontSize: 13,
-            color: '#0f172a',
+            color: theme.text,
           }}
         >
           {status === 'renamed' && block.oldPath
@@ -946,11 +1000,11 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
         <div
           style={{
             fontSize: 13,
-            color: '#64748b',
+            color: theme.textMuted,
             fontStyle: 'italic',
             padding: '8px 10px',
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
+            background: theme.surfaceMuted,
+            border: `1px solid ${theme.border}`,
             borderRadius: 6,
           }}
         >
@@ -963,12 +1017,13 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
       ) : (
         hunks.map((hunk) => {
           const r = reviewFor(hunk.hunkId);
+          const dls = diffLineStyle(theme);
           return (
             <div
               key={hunk.hunkId}
               data-hunk-id={hunk.hunkId}
               style={{
-                border: '1px solid #e2e8f0',
+                border: `1px solid ${theme.border}`,
                 borderRadius: 6,
                 overflow: 'hidden',
                 marginBottom: 12,
@@ -977,12 +1032,12 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
               <div
                 style={{
                   padding: '6px 10px',
-                  background: '#f1f5f9',
-                  borderBottom: '1px solid #e2e8f0',
+                  background: theme.codeInlineBg,
+                  borderBottom: `1px solid ${theme.border}`,
                   fontSize: 12,
                   fontFamily:
                     'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                  color: '#475569',
+                  color: theme.textDetail,
                 }}
               >
                 {hunk.header}
@@ -991,7 +1046,7 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
                 style={{
                   margin: 0,
                   padding: '8px 0',
-                  background: '#0f172a',
+                  background: theme.codeBg,
                   fontSize: 12.5,
                   lineHeight: 1.5,
                   overflowX: 'auto',
@@ -1002,7 +1057,7 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
               >
                 {(Array.isArray(hunk.lines) ? hunk.lines : []).map(
                   (line, i) => {
-                    const ls = DIFF_LINE_STYLE[line.op] ?? DIFF_LINE_STYLE[' '];
+                    const ls = dls[line.op] ?? dls[' '];
                     return (
                       <div
                         key={i}
@@ -1026,13 +1081,13 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
                   alignItems: 'center',
                   gap: 6,
                   padding: '8px 10px',
-                  borderTop: '1px solid #e2e8f0',
-                  background: '#fff',
+                  borderTop: `1px solid ${theme.border}`,
+                  background: theme.surface,
                 }}
               >
                 {HUNK_VERDICTS.map((v) => {
                   const active = r.verdict === v;
-                  const c = HUNK_VERDICT_COLORS[v];
+                  const c = hunkVerdictColors(theme)[v];
                   return (
                     <button
                       key={v}
@@ -1049,9 +1104,11 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
                         padding: '3px 10px',
                         borderRadius: 99,
                         cursor: 'pointer',
-                        background: active ? c.bg : '#f8fafc',
-                        color: active ? c.fg : '#94a3b8',
-                        border: `1px solid ${active ? c.border : '#e2e8f0'}`,
+                        background: active ? c.bg : theme.surfaceMuted,
+                        color: active ? c.fg : theme.textFaint,
+                        border: `1px solid ${
+                          active ? c.border : theme.border
+                        }`,
                       }}
                     >
                       {v}
@@ -1073,7 +1130,7 @@ function DiffView({ block, review, onHunkReview }: DiffViewProps) {
                   width: '100%',
                   padding: '8px 10px',
                   border: 'none',
-                  borderTop: '1px solid #e2e8f0',
+                  borderTop: `1px solid ${theme.border}`,
                   fontSize: 13,
                   fontFamily: 'inherit',
                   resize: 'vertical',

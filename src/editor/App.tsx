@@ -17,6 +17,7 @@ import {
   fetchTransport,
 } from './envelope';
 import { loadDocument } from './loader';
+import { ThemeProvider, useTheme, useThemeControl } from './theme';
 import {
   type EditorCallbacks,
   type EditorState,
@@ -30,11 +31,44 @@ interface AppProps extends EditorCallbacks {
   transport?: EnvelopeTransport;
 }
 
-export default function App({
+export default function App(props: AppProps) {
+  return (
+    <ThemeProvider>
+      <AppInner {...props} />
+    </ThemeProvider>
+  );
+}
+
+function ThemeToggle() {
+  const { name, toggle } = useThemeControl();
+  const theme = useTheme();
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label="Toggle theme"
+      style={{
+        marginLeft: 'auto',
+        fontSize: 12,
+        color: theme.headerMuted,
+        background: 'none',
+        border: `1px solid ${theme.headerMuted}`,
+        borderRadius: 6,
+        padding: '3px 9px',
+        cursor: 'pointer',
+      }}
+    >
+      {name === 'light' ? '🌙 dark' : '☀ light'}
+    </button>
+  );
+}
+
+function AppInner({
   onApprove,
   onRevise,
   transport = fetchTransport,
 }: AppProps) {
+  const theme = useTheme();
   const [doc, setDoc] = useState<PlanDocument | null>(null);
   const [decision, setDecision] = useState<'idle' | 'approve' | 'revise'>(
     'idle'
@@ -114,16 +148,16 @@ export default function App({
 
   const shell: React.CSSProperties = {
     minHeight: '100vh',
-    background: '#f1f5f9',
+    background: theme.bg,
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    color: '#0f172a',
+    color: theme.text,
   };
 
   if (!doc) {
     return (
       <div style={{ ...shell, display: 'grid', placeItems: 'center' }}>
-        <span style={{ color: '#64748b' }}>Loading plan…</span>
+        <span style={{ color: theme.textMuted }}>Loading plan…</span>
       </div>
     );
   }
@@ -132,8 +166,8 @@ export default function App({
     <div style={shell}>
       <header
         style={{
-          background: '#0f172a',
-          color: '#f8fafc',
+          background: theme.headerBg,
+          color: theme.headerText,
           padding: '14px 24px',
           display: 'flex',
           alignItems: 'center',
@@ -143,23 +177,26 @@ export default function App({
         <strong style={{ fontSize: 18, letterSpacing: '-0.01em' }}>
           planos
         </strong>
-        <span style={{ color: '#94a3b8', fontSize: 13 }}>Plan Review</span>
+        <span style={{ color: theme.headerMuted, fontSize: 13 }}>
+          Plan Review
+        </span>
         <span
           style={{
             marginLeft: 'auto',
             fontSize: 12,
-            color: '#94a3b8',
+            color: theme.headerMuted,
           }}
         >
           rev {doc.meta.revision} · {doc.meta.status}
         </span>
+        <ThemeToggle />
       </header>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '28px 16px' }}>
         <div
           style={{
-            background: '#fff',
-            border: '1px solid #e2e8f0',
+            background: theme.surface,
+            border: `1px solid ${theme.border}`,
             borderRadius: 10,
             padding: 24,
             marginBottom: 20,
@@ -174,7 +211,7 @@ export default function App({
           >
             {doc.title}
           </h1>
-          <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 20px' }}>
+          <p style={{ fontSize: 13, color: theme.textMuted, margin: '0 0 20px' }}>
             {doc.blocks.length} blocks · document {doc.id}
             {doc.meta.degraded && ' · ⚠ this plan was not structured'}
           </p>
@@ -211,14 +248,14 @@ export default function App({
 
         <div
           style={{
-            background: '#fff',
-            border: '1px solid #e2e8f0',
+            background: theme.surface,
+            border: `1px solid ${theme.border}`,
             borderRadius: 10,
             padding: 16,
             marginBottom: 20,
           }}
         >
-          <label style={{ fontSize: 12, color: '#64748b' }}>
+          <label style={{ fontSize: 12, color: theme.textMuted }}>
             Overall comment (optional)
             <textarea
               aria-label="Global comment"
@@ -231,7 +268,7 @@ export default function App({
                 width: '100%',
                 marginTop: 4,
                 padding: '8px 10px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${theme.borderStrong}`,
                 borderRadius: 6,
                 fontSize: 13,
                 fontFamily: 'inherit',
@@ -250,8 +287,8 @@ export default function App({
               style={{
                 flex: 1,
                 padding: 13,
-                background: '#16a34a',
-                color: '#fff',
+                background: theme.accentApprove,
+                color: theme.onAccent,
                 border: 'none',
                 borderRadius: 8,
                 fontWeight: 700,
@@ -267,8 +304,8 @@ export default function App({
               style={{
                 flex: 1,
                 padding: 13,
-                background: '#dc2626',
-                color: '#fff',
+                background: theme.accentRevise,
+                color: theme.onAccent,
                 border: 'none',
                 borderRadius: 8,
                 fontWeight: 700,
@@ -283,14 +320,22 @@ export default function App({
           <div
             style={{
               padding: 16,
-              background: decision === 'approve' ? '#dcfce7' : '#fee2e2',
+              background:
+                decision === 'approve'
+                  ? theme.statusDoneBg
+                  : theme.statusCutBg,
               border: `1px solid ${
-                decision === 'approve' ? '#86efac' : '#fca5a5'
+                decision === 'approve'
+                  ? theme.bannerApproveBorder
+                  : theme.bannerReviseBorder
               }`,
               borderRadius: 8,
               textAlign: 'center',
               fontWeight: 700,
-              color: decision === 'approve' ? '#15803d' : '#b91c1c',
+              color:
+                decision === 'approve'
+                  ? theme.statusDoneFg
+                  : theme.statusCutFg,
             }}
           >
             {decision === 'approve'

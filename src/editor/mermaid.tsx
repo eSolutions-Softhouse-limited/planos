@@ -20,6 +20,7 @@
  * with the error, so a malformed diagram still degrades gracefully.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useTheme } from './theme';
 
 // `mermaid` has no first-party React types we depend on; we only use the
 // minimal `initialize` / `render` surface.
@@ -55,6 +56,7 @@ function getMermaid(): Promise<MermaidApi> {
 let renderSeq = 0;
 
 export function MermaidDiagram({ source }: { source: string }) {
+  const theme = useTheme();
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const idRef = useRef<string>(`planos-mmd-${(renderSeq += 1)}`);
@@ -85,15 +87,17 @@ export function MermaidDiagram({ source }: { source: string }) {
   if (error) {
     return (
       <div>
-        <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 4 }}>
+        <div
+          style={{ fontSize: 12, color: theme.statusCutFg, marginBottom: 4 }}
+        >
           ⚠ diagram could not be rendered: {error}
         </div>
         <pre
           style={{
             margin: 0,
             padding: '10px 12px',
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
+            background: theme.surfaceMuted,
+            border: `1px solid ${theme.border}`,
             borderRadius: 6,
             fontSize: 12,
             overflowX: 'auto',
@@ -108,7 +112,9 @@ export function MermaidDiagram({ source }: { source: string }) {
 
   if (svg === null) {
     return (
-      <div style={{ fontSize: 13, color: '#94a3b8' }}>rendering diagram…</div>
+      <div style={{ fontSize: 13, color: theme.textFaint }}>
+        rendering diagram…
+      </div>
     );
   }
 

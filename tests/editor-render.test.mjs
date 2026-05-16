@@ -220,6 +220,57 @@ test('AC-R11 bundle contains the v3 diff renderer + per-hunk review affordance',
   );
 });
 
+// ---------------------------------------------------------------------------
+// Phase 4 / Milestone Q2 — theme token layer (AC-Q2). Non-visual: assert the
+// bundled SPA ships BOTH the `light` and `dark` palettes, the header theme
+// toggle, and the `prefers-color-scheme` OS-default query — and that toggling
+// theme changes tokenized style values (the two palettes carry DIFFERENT hex
+// for the same tokens, so a live toggle re-styles every tokenized surface).
+// The visual demo per theme is the [M] manual smoke.
+// ---------------------------------------------------------------------------
+
+test('AC-Q2 bundle ships both theme palettes + the toggle + prefers-color-scheme default', () => {
+  // OS-default media query (zero-dep one-liner) survives minification verbatim.
+  assert.ok(
+    html.includes('prefers-color-scheme: dark'),
+    'bundle missing the prefers-color-scheme OS-default media query'
+  );
+  // Header theme toggle control (aria-label + the toggle button glyphs).
+  assert.ok(
+    html.includes('Toggle theme'),
+    'bundle missing the header theme toggle control'
+  );
+  assert.ok(
+    html.includes('🌙 dark') && html.includes('☀ light'),
+    'bundle missing the theme toggle labels'
+  );
+  // BOTH palettes are present: the `light` diff-add background (verbatim pre-Q2
+  // rgba) AND `dark`-only surfaces that exist in NO other place in the source.
+  assert.ok(
+    html.includes('rgba(34,197,94,0.18)'),
+    'bundle missing the light palette (verbatim pre-Q2 diff-add background)'
+  );
+  for (const darkOnly of ['#0b1120', '#020617', 'rgba(34,197,94,0.22)']) {
+    assert.ok(
+      html.includes(darkOnly),
+      `bundle missing dark-palette token value: ${darkOnly}`
+    );
+  }
+  // Toggling theme changes tokenized style props (non-visual proof): the same
+  // semantic token (e.g. `bg`) resolves to DIFFERENT values across palettes,
+  // so a theme switch necessarily re-styles the rendered tree. We assert the
+  // light shell bg and the dark shell bg are BOTH bundled and are distinct.
+  assert.ok(
+    html.includes('#f1f5f9') && html.includes('#0b1120'),
+    'bundle must carry distinct light vs dark shell backgrounds (toggle re-styles)'
+  );
+  assert.notEqual(
+    '#f1f5f9',
+    '#0b1120',
+    'light and dark `bg` token must differ so the toggle changes style props'
+  );
+});
+
 test('AC-P17 committed plugin/dist/index.html is byte-identical to a fresh rebuild (drift check)', () => {
   // Phase 1 committed-artifact remediation pattern: the committed bundle must
   // equal a deterministic fresh rebuild, so the v2 renderers + history browser

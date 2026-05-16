@@ -7,9 +7,14 @@
  * passthrough (inputs are escaped) so this stays XSS-safe by construction.
  */
 import { type ReactNode } from 'react';
+import { useTheme, type ThemeTokens } from './theme';
 
 /** Inline: code spans, bold, italic, and links. Order matters. */
-function renderInline(text: string, keyBase: string): ReactNode[] {
+function renderInline(
+  text: string,
+  keyBase: string,
+  theme: ThemeTokens
+): ReactNode[] {
   const out: ReactNode[] = [];
   // Split on inline code first so emphasis inside code is left literal.
   const codeParts = text.split(/(`[^`]+`)/g);
@@ -19,7 +24,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
         <code
           key={`${keyBase}-c${ci}`}
           style={{
-            background: '#f1f5f9',
+            background: theme.codeInlineBg,
             padding: '1px 5px',
             borderRadius: 4,
             fontSize: '0.9em',
@@ -45,7 +50,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
             href={link[2]}
             target="_blank"
             rel="noreferrer"
-            style={{ color: '#2563eb', textDecoration: 'underline' }}
+            style={{ color: theme.accent, textDecoration: 'underline' }}
           >
             {link[1]}
           </a>
@@ -71,6 +76,7 @@ interface MdProps {
 
 /** Block-level line walker producing React nodes. */
 export function Markdown({ source }: MdProps): ReactNode {
+  const theme = useTheme();
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const nodes: ReactNode[] = [];
   let i = 0;
@@ -92,8 +98,8 @@ export function Markdown({ source }: MdProps): ReactNode {
         <pre
           key={key++}
           style={{
-            background: '#0f172a',
-            color: '#e2e8f0',
+            background: theme.codeBg,
+            color: theme.codeText,
             padding: '12px 14px',
             borderRadius: 6,
             overflowX: 'auto',
@@ -113,7 +119,11 @@ export function Markdown({ source }: MdProps): ReactNode {
       nodes.push(
         <hr
           key={key++}
-          style={{ border: 0, borderTop: '1px solid #e5e7eb', margin: '14px 0' }}
+          style={{
+            border: 0,
+            borderTop: `1px solid ${theme.rule}`,
+            margin: '14px 0',
+          }}
         />
       );
       i++;
@@ -133,11 +143,11 @@ export function Markdown({ source }: MdProps): ReactNode {
           style={{
             fontSize: sizes[level - 1],
             fontWeight: 700,
-            color: '#0f172a',
+            color: theme.text,
             margin: '14px 0 6px',
           }}
         >
-          {renderInline(h[2], `h${key}`)}
+          {renderInline(h[2], `h${key}`, theme)}
         </div>
       );
       i++;
@@ -155,13 +165,13 @@ export function Markdown({ source }: MdProps): ReactNode {
         <blockquote
           key={key++}
           style={{
-            borderLeft: '3px solid #cbd5e1',
+            borderLeft: `3px solid ${theme.borderStrong}`,
             margin: '8px 0',
             padding: '4px 12px',
-            color: '#475569',
+            color: theme.textDetail,
           }}
         >
-          {renderInline(quote.join(' '), `bq${key}`)}
+          {renderInline(quote.join(' '), `bq${key}`, theme)}
         </blockquote>
       );
       continue;
@@ -178,7 +188,7 @@ export function Markdown({ source }: MdProps): ReactNode {
         <ul key={key++} style={{ margin: '6px 0', paddingLeft: 22 }}>
           {items.map((it, idx) => (
             <li key={idx} style={{ margin: '2px 0' }}>
-              {renderInline(it, `ul${key}-${idx}`)}
+              {renderInline(it, `ul${key}-${idx}`, theme)}
             </li>
           ))}
         </ul>
@@ -197,7 +207,7 @@ export function Markdown({ source }: MdProps): ReactNode {
         <ol key={key++} style={{ margin: '6px 0', paddingLeft: 22 }}>
           {items.map((it, idx) => (
             <li key={idx} style={{ margin: '2px 0' }}>
-              {renderInline(it, `ol${key}-${idx}`)}
+              {renderInline(it, `ol${key}-${idx}`, theme)}
             </li>
           ))}
         </ol>
@@ -228,7 +238,7 @@ export function Markdown({ source }: MdProps): ReactNode {
     }
     nodes.push(
       <p key={key++} style={{ margin: '6px 0', lineHeight: 1.6 }}>
-        {renderInline(para.join(' '), `p${key}`)}
+        {renderInline(para.join(' '), `p${key}`, theme)}
       </p>
     );
   }
