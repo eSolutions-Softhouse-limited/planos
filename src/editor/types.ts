@@ -212,6 +212,17 @@ export interface PlanDocument {
  * envelope-emission step (US-017) consumes exactly this; nothing here knows
  * about serialization, `documentId`, or `baseRevision`.
  */
+/**
+ * One per-hunk review entry (R5, hunk-level only). `verdict` is the tri-state
+ * accept/reject/comment toggle; `text` the optional per-hunk comment. Mirrors
+ * the persisted `BlockComment{verdict}` shape minus the minted `commentId`
+ * (the envelope builder mints that deterministically — §3.4).
+ */
+export interface HunkReview {
+  verdict: 'accept' | 'reject' | 'comment';
+  text: string;
+}
+
 export interface EditorState {
   /** blockId → shallow patch of changed fields (task edits). */
   edits: Record<string, Partial<TaskBlock>>;
@@ -219,6 +230,13 @@ export interface EditorState {
   comments: Record<string, string>;
   /** blockId → answer text (openQuestion). */
   answers: Record<string, string>;
+  /**
+   * blockId → (hunkId → per-hunk review). The v3 `diff` per-hunk
+   * accept/reject/comment surface (R5, hunk-level only). Serialized into an
+   * `editBlock` op whose patch updates that `diff` block's `comments[]` with a
+   * `BlockComment{commentId, hunkId, text, verdict}` — NO new envelope op.
+   */
+  reviewVerdicts?: Record<string, Record<string, HunkReview>>;
   /** Optional document-wide comment. */
   globalComment?: string;
 }

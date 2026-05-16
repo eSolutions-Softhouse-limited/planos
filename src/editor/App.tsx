@@ -20,6 +20,7 @@ import { loadDocument } from './loader';
 import {
   type EditorCallbacks,
   type EditorState,
+  type HunkReview,
   type PlanDocument,
   type TaskBlock,
 } from './types';
@@ -42,6 +43,9 @@ export default function App({
   const [edits, setEdits] = useState<Record<string, Partial<TaskBlock>>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [reviewVerdicts, setReviewVerdicts] = useState<
+    Record<string, Record<string, HunkReview>>
+  >({});
   const [globalComment, setGlobalComment] = useState('');
 
   useEffect(() => {
@@ -71,9 +75,25 @@ export default function App({
       answers: Object.fromEntries(
         Object.entries(answers).filter(([, v]) => v.trim().length > 0)
       ),
+      reviewVerdicts: Object.fromEntries(
+        Object.entries(reviewVerdicts)
+          .map(
+            ([bid, hunks]) =>
+              [
+                bid,
+                Object.fromEntries(
+                  Object.entries(hunks).filter(
+                    ([, r]) =>
+                      r.verdict !== 'comment' || r.text.trim().length > 0
+                  )
+                ),
+              ] as const
+          )
+          .filter(([, hunks]) => Object.keys(hunks).length > 0)
+      ),
       globalComment: globalComment.trim() || undefined,
     }),
-    [edits, comments, answers, globalComment]
+    [edits, comments, answers, reviewVerdicts, globalComment]
   );
 
   function handleApprove() {
@@ -175,6 +195,13 @@ export default function App({
               }
               onAnswer={(text) =>
                 setAnswers((a) => ({ ...a, [block.id]: text }))
+              }
+              hunkReview={reviewVerdicts[block.id] ?? {}}
+              onHunkReview={(hunkId, next) =>
+                setReviewVerdicts((rv) => ({
+                  ...rv,
+                  [block.id]: { ...(rv[block.id] ?? {}), [hunkId]: next },
+                }))
               }
             />
           ))}

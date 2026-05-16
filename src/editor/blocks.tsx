@@ -15,7 +15,9 @@ import {
   type CodeBlock,
   type DecisionBlock,
   type DiagramBlock,
+  type DiffBlock,
   type FileChangeBlock,
+  type HunkReview,
   type ObjectiveBlock,
   type OpenQuestionBlock,
   type PhaseBlock,
@@ -823,6 +825,270 @@ function DiagramView({ block }: { block: DiagramBlock }) {
 }
 
 // ---------------------------------------------------------------------------
+// v3 (diff-review-scoped) renderer — Milestone R4. Plain React + inline
+// styles, ZERO new deps, ZERO syntax-highlight lib (exactly like CodeView).
+// Per-hunk accept/reject/comment is hunk-level only (R5); it flows up via
+// `onHunkReview` and is serialized into an `editBlock` patch of `comments[]`
+// (NO new envelope op). The block-level comment affordance stays in BlockShell.
+// ---------------------------------------------------------------------------
+
+const DIFF_STATUS_COLORS: Record<
+  NonNullable<DiffBlock['status']>,
+  { bg: string; fg: string }
+> = {
+  added: { bg: '#dcfce7', fg: '#15803d' },
+  modified: { bg: '#dbeafe', fg: '#1e40af' },
+  deleted: { bg: '#fee2e2', fg: '#b91c1c' },
+  renamed: { bg: '#fef9c3', fg: '#854d0e' },
+  binary: { bg: '#e5e7eb', fg: '#374151' },
+};
+
+const DIFF_LINE_STYLE: Record<
+  ' ' | '+' | '-',
+  { bg: string; fg: string }
+> = {
+  ' ': { bg: 'transparent', fg: '#e2e8f0' },
+  '+': { bg: 'rgba(34,197,94,0.18)', fg: '#86efac' },
+  '-': { bg: 'rgba(239,68,68,0.18)', fg: '#fca5a5' },
+};
+
+const HUNK_VERDICTS: HunkReview['verdict'][] = [
+  'accept',
+  'reject',
+  'comment',
+];
+
+const HUNK_VERDICT_COLORS: Record<
+  HunkReview['verdict'],
+  { bg: string; fg: string; border: string }
+> = {
+  accept: { bg: '#dcfce7', fg: '#15803d', border: '#86efac' },
+  reject: { bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' },
+  comment: { bg: '#dbeafe', fg: '#1e40af', border: '#93c5fd' },
+};
+
+interface DiffViewProps {
+  block: DiffBlock;
+  /** hunkId → current per-hunk review (verdict + optional comment text). */
+  review: Record<string, HunkReview>;
+  onHunkReview: (hunkId: string, next: HunkReview) => void;
+}
+
+/**
+ * `diff`: a file-path header (status badge + mono path, `oldPath → path` on
+ * rename), then a per-hunk unified-diff body styled by `DiffLine.op` in a
+ * monospace <pre> exactly like `CodeView`. Each hunk carries a hunk-level
+ * accept/reject/comment toggle + comment box (R5). Empty `hunks[]`
+ * (binary / rename stub, R6) renders a descriptive affordance, never crashes.
+ */
+function DiffView({ block, review, onHunkReview }: DiffViewProps) {
+  const status = block.status;
+  const badge = status ? DIFF_STATUS_COLORS[status] : null;
+  const hunks = Array.isArray(block.hunks) ? block.hunks : [];
+
+  // Seed the per-hunk review from any pre-existing BlockComment in the doc
+  // (hunkId-anchored), so a re-opened diff-review keeps prior verdicts.
+  const seeded: Record<string, HunkReview> = {};
+  for (const c of Array.isArray(block.comments) ? block.comments : []) {
+    if (c && typeof c.hunkId === 'string' && c.hunkId.length > 0) {
+      seeded[c.hunkId] = {
+        verdict: c.verdict,
+        text: typeof c.text === 'string' ? c.text : '',
+      };
+    }
+  }
+  const reviewFor = (hunkId: string): HunkReview =>
+    review[hunkId] ??
+    seeded[hunkId] ?? { verdict: 'comment', text: '' };
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+          marginBottom: 10,
+        }}
+      >
+        {status && (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              padding: '2px 8px',
+              borderRadius: 4,
+              background: (badge ?? { bg: '#e5e7eb' }).bg,
+              color: (badge ?? { fg: '#374151' }).fg,
+            }}
+          >
+            {status}
+          </span>
+        )}
+        <code
+          style={{
+            fontFamily:
+              'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontSize: 13,
+            color: '#0f172a',
+          }}
+        >
+          {status === 'renamed' && block.oldPath
+            ? `${block.oldPath} → ${block.path}`
+            : block.path}
+        </code>
+      </div>
+
+      {hunks.length === 0 ? (
+        <div
+          style={{
+            fontSize: 13,
+            color: '#64748b',
+            fontStyle: 'italic',
+            padding: '8px 10px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 6,
+          }}
+        >
+          {status === 'binary'
+            ? 'binary file — no textual diff'
+            : status === 'renamed'
+              ? `renamed ${block.oldPath ?? '(unknown)'} → ${block.path}`
+              : 'no textual diff'}
+        </div>
+      ) : (
+        hunks.map((hunk) => {
+          const r = reviewFor(hunk.hunkId);
+          return (
+            <div
+              key={hunk.hunkId}
+              data-hunk-id={hunk.hunkId}
+              style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 6,
+                overflow: 'hidden',
+                marginBottom: 12,
+              }}
+            >
+              <div
+                style={{
+                  padding: '6px 10px',
+                  background: '#f1f5f9',
+                  borderBottom: '1px solid #e2e8f0',
+                  fontSize: 12,
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                  color: '#475569',
+                }}
+              >
+                {hunk.header}
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  padding: '8px 0',
+                  background: '#0f172a',
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                  overflowX: 'auto',
+                  whiteSpace: 'pre',
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                }}
+              >
+                {(Array.isArray(hunk.lines) ? hunk.lines : []).map(
+                  (line, i) => {
+                    const ls = DIFF_LINE_STYLE[line.op] ?? DIFF_LINE_STYLE[' '];
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          background: ls.bg,
+                          color: ls.fg,
+                          padding: '0 12px',
+                        }}
+                      >
+                        {line.op}
+                        {line.text}
+                      </div>
+                    );
+                  }
+                )}
+              </pre>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 10px',
+                  borderTop: '1px solid #e2e8f0',
+                  background: '#fff',
+                }}
+              >
+                {HUNK_VERDICTS.map((v) => {
+                  const active = r.verdict === v;
+                  const c = HUNK_VERDICT_COLORS[v];
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-label={`${v} hunk ${hunk.hunkId}`}
+                      aria-pressed={active}
+                      onClick={() =>
+                        onHunkReview(hunk.hunkId, { ...r, verdict: v })
+                      }
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        textTransform: 'capitalize',
+                        padding: '3px 10px',
+                        borderRadius: 99,
+                        cursor: 'pointer',
+                        background: active ? c.bg : '#f8fafc',
+                        color: active ? c.fg : '#94a3b8',
+                        border: `1px solid ${active ? c.border : '#e2e8f0'}`,
+                      }}
+                    >
+                      {v}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <textarea
+                aria-label={`Comment on hunk ${hunk.hunkId}`}
+                value={r.text}
+                onChange={(e) =>
+                  onHunkReview(hunk.hunkId, { ...r, text: e.target.value })
+                }
+                placeholder="Per-hunk comment for the agent…"
+                rows={2}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '8px 10px',
+                  border: 'none',
+                  borderTop: '1px solid #e2e8f0',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher.
 // ---------------------------------------------------------------------------
 
@@ -834,6 +1100,13 @@ export interface BlockRendererProps {
   onComment: (text: string) => void;
   onTaskPatch: (p: Partial<TaskBlock>) => void;
   onAnswer: (text: string) => void;
+  /**
+   * Per-hunk review state for a `diff` block (hunkId → verdict + comment).
+   * Optional so existing v1/v2 call sites keep working unchanged.
+   */
+  hunkReview?: Record<string, HunkReview>;
+  /** Per-hunk review mutation (R5, hunk-level only). */
+  onHunkReview?: (hunkId: string, next: HunkReview) => void;
   /**
    * All blocks in the document keyed by id — used by `phase` to resolve its
    * `taskIds` to task titles. Optional so existing call sites keep working;
@@ -850,6 +1123,8 @@ export function BlockRenderer({
   onComment,
   onTaskPatch,
   onAnswer,
+  hunkReview = {},
+  onHunkReview,
   byId = {},
 }: BlockRendererProps) {
   let body: ReactNode;
@@ -902,8 +1177,19 @@ export function BlockRenderer({
     // v3 (diff-review-scoped) kind — Milestone R0 placeholder satisfying the
     // exhaustiveness guard below. R4: full DiffView (file-path header, per-hunk
     // unified-diff render, per-hunk accept/reject + comment affordance).
+    // v3 (diff-review-scoped) kind — Milestone R4. Real DiffView (file-path
+    // header, per-hunk unified-diff render, per-hunk accept/reject + comment
+    // affordance). Satisfies the `_never` guard with a real render, not null.
     case 'diff':
-      body = null; // R4: full DiffView
+      body = (
+        <DiffView
+          block={block}
+          review={hunkReview}
+          onHunkReview={(hunkId, next) =>
+            onHunkReview?.(hunkId, next)
+          }
+        />
+      );
       break;
     default: {
       // Exhaustiveness guard: every one of the 14 Block kinds (7 v1 + 6 v2 +

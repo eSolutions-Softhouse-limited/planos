@@ -211,6 +211,110 @@ test('empty state -> valid envelope with zero ops, no globalComment', () => {
   assert.ok(!('globalComment' in env));
 });
 
+// ---------------------------------------------------------------------------
+// AC-R12 (SPA-emit half) — a per-hunk accept/reject/comment serializes into
+// the EXISTING `editBlock` op as a `patch.comments[]` of
+// `BlockComment{commentId, hunkId, text, verdict}` (R5: NO new op
+// discriminant; `src/schema/envelope.mjs` unchanged). It round-trips through
+// `validateEnvelope` (the proven looksLikeBareEnvelope path) intact.
+// ---------------------------------------------------------------------------
+
+const DIFF_DOC = {
+  schemaVersion: 1,
+  type: 'diff-review',
+  id: 'diff-emit-fixture-001',
+  title: 'Diff emission fixture',
+  meta: { branch: 'main', status: 'in-review', createdAt: 'x', revision: 3 },
+  blocks: [
+    { id: 's0', kind: 'section', title: 'Review', level: 1 },
+    {
+      id: 'dr-1',
+      kind: 'diff',
+      path: 'src/a.ts',
+      status: 'modified',
+      hunks: [
+        {
+          header: '@@ -1,2 +1,2 @@',
+          oldStart: 1,
+          oldLines: 2,
+          newStart: 1,
+          newLines: 2,
+          hunkId: 'dr-1-h1',
+          lines: [{ op: ' ', text: 'a' }],
+        },
+        {
+          header: '@@ -10,1 +10,2 @@',
+          oldStart: 10,
+          oldLines: 1,
+          newStart: 10,
+          newLines: 2,
+          hunkId: 'dr-1-h2',
+          lines: [{ op: '+', text: 'b' }],
+        },
+      ],
+      comments: [],
+    },
+  ],
+};
+
+test('AC-R12 SPA-emit: per-hunk verdict → editBlock patch of comments[] (NO new op)', () => {
+  const env = buildEnvelope('revise', DIFF_DOC, {
+    reviewVerdicts: {
+      'dr-1': {
+        'dr-1-h1': { verdict: 'reject', text: 'Mint the token lazily.' },
+        'dr-1-h2': { verdict: 'accept', text: '' },
+      },
+    },
+  });
+  // No new op discriminant — only the existing editBlock op.
+  for (const op of env.ops) {
+    assert.ok(EDIT_OPS.includes(op.op), `op ${op.op} not in Edit union`);
+  }
+  const edit = env.ops.find(
+    (o) => o.op === 'editBlock' && o.blockId === 'dr-1'
+  );
+  assert.ok(edit, 'expected an editBlock op for the diff block dr-1');
+  // BlockComment shape exactly as src/hook/review.mjs deriveReviewResult reads
+  // it: { commentId, hunkId, text, verdict }, deterministic commentId in doc
+  // hunk order.
+  assert.deepEqual(edit.patch.comments, [
+    {
+      commentId: 'dr-1-c1',
+      hunkId: 'dr-1-h1',
+      text: 'Mint the token lazily.',
+      verdict: 'reject',
+    },
+    {
+      commentId: 'dr-1-c2',
+      hunkId: 'dr-1-h2',
+      text: '',
+      verdict: 'accept',
+    },
+  ]);
+  // Round-trips through the canonical server-side validator unchanged.
+  const res = validateEnvelope(env);
+  assert.ok(res.ok, res.ok ? '' : res.errors.join('\n'));
+  // Stable / byte-identical re-emission (deterministic commentId minting).
+  const again = buildEnvelope('revise', DIFF_DOC, {
+    reviewVerdicts: {
+      'dr-1': {
+        'dr-1-h2': { verdict: 'accept', text: '' },
+        'dr-1-h1': { verdict: 'reject', text: 'Mint the token lazily.' },
+      },
+    },
+  });
+  assert.equal(JSON.stringify(again), JSON.stringify(env));
+});
+
+test('AC-R12 SPA-emit: neutral comment verdict with no text emits nothing', () => {
+  const env = buildEnvelope('revise', DIFF_DOC, {
+    reviewVerdicts: { 'dr-1': { 'dr-1-h1': { verdict: 'comment', text: '' } } },
+  });
+  assert.deepEqual(env.ops, []);
+  const res = validateEnvelope(env);
+  assert.ok(res.ok, res.ok ? '' : res.errors.join('\n'));
+});
+
 test('whitespace-only / empty values are not emitted as ops', () => {
   const env = buildEnvelope('revise', DOC, {
     edits: { 'task-build': {} },
