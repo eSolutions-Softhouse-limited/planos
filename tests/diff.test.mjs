@@ -551,6 +551,250 @@ test("AC-P4 v2 diff is deterministic (byte-identical across runs)", () => {
   assert.equal(JSON.stringify(a), JSON.stringify(b));
 });
 
+// ---------------------------------------------------------------------------
+// AC-R4 (Phase 3 / Milestone R0): structural diff classifies v3 `diff` blocks.
+//
+//   v3u   unchanged  — identical diff block, identical position.
+//   v3m   modified   — a hunk LINE changed in place; `diff` TEXT_FIELDS is
+//                      ["path"] (path unchanged) so it is modified via
+//                      structural equality with NO word-diff (hunks/comments
+//                      are structural, like `table`).
+//   v3cm  modified   — only a BlockComment's verdict/text changed ⇒ modified
+//                      via structural equality, NO fieldDiffs.
+//   v3pm  modified   — the `path` (a TEXT_FIELD) changed ⇒ modified WITH a
+//                      word-diff over `path`.
+//   v3mv  moved       — identical diff block, relative order changed.
+//   v3a   added       — a new file diff present only in next.
+// ---------------------------------------------------------------------------
+
+const hunkA = {
+  header: "@@ -1,2 +1,2 @@",
+  oldStart: 1,
+  oldLines: 2,
+  newStart: 1,
+  newLines: 2,
+  lines: [
+    { op: " ", text: "const a = 1;" },
+    { op: "-", text: "const b = 2;" },
+    { op: "+", text: "const b = 3;" },
+  ],
+  hunkId: "v3m-h0",
+};
+
+const prevReview = {
+  schemaVersion: 1,
+  type: "diff-review",
+  id: "review-1",
+  title: "v3 diff fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 1 },
+  blocks: [
+    {
+      id: "v3u",
+      kind: "diff",
+      path: "src/unchanged.mjs",
+      status: "modified",
+      hunks: [
+        {
+          header: "@@ -1 +1 @@",
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [{ op: " ", text: "stable" }],
+          hunkId: "v3u-h0",
+        },
+      ],
+      comments: [],
+    },
+    {
+      id: "v3m",
+      kind: "diff",
+      path: "src/changed.mjs",
+      status: "modified",
+      hunks: [hunkA],
+      comments: [],
+    },
+    {
+      id: "v3cm",
+      kind: "diff",
+      path: "src/commented.mjs",
+      status: "modified",
+      hunks: [],
+      comments: [
+        { commentId: "v3cm-c0", hunkId: null, text: "looks fine", verdict: "accept" },
+      ],
+    },
+    {
+      id: "v3pm",
+      kind: "diff",
+      path: "src/old/name.mjs",
+      status: "renamed",
+      oldPath: "src/old/sename.mjs",
+      hunks: [],
+      comments: [],
+    },
+    {
+      id: "v3mv",
+      kind: "diff",
+      path: "src/moved.mjs",
+      status: "added",
+      hunks: [],
+      comments: [],
+    },
+  ],
+};
+
+const nextReview = {
+  schemaVersion: 1,
+  type: "diff-review",
+  id: "review-1",
+  title: "v3 diff fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 2 },
+  blocks: [
+    {
+      id: "v3u",
+      kind: "diff",
+      path: "src/unchanged.mjs",
+      status: "modified",
+      hunks: [
+        {
+          header: "@@ -1 +1 @@",
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [{ op: " ", text: "stable" }],
+          hunkId: "v3u-h0",
+        },
+      ],
+      comments: [],
+    },
+    {
+      // v3mv moved BEFORE v3m: relative order changed, content identical.
+      id: "v3mv",
+      kind: "diff",
+      path: "src/moved.mjs",
+      status: "added",
+      hunks: [],
+      comments: [],
+    },
+    {
+      id: "v3m",
+      kind: "diff",
+      path: "src/changed.mjs",
+      status: "modified",
+      hunks: [
+        {
+          ...hunkA,
+          // A hunk LINE changed in place (3 → 4). hunks are structural.
+          lines: [
+            { op: " ", text: "const a = 1;" },
+            { op: "-", text: "const b = 2;" },
+            { op: "+", text: "const b = 4;" },
+          ],
+        },
+      ],
+      comments: [],
+    },
+    {
+      id: "v3cm",
+      kind: "diff",
+      path: "src/commented.mjs",
+      status: "modified",
+      hunks: [],
+      comments: [
+        // verdict + text changed (a structural change; comments not TEXT_FIELDS).
+        {
+          commentId: "v3cm-c0",
+          hunkId: null,
+          text: "needs a test",
+          verdict: "reject",
+        },
+      ],
+    },
+    {
+      id: "v3pm",
+      kind: "diff",
+      // `path` (a TEXT_FIELD) changed ⇒ modified WITH a word-diff.
+      path: "src/new/name.mjs",
+      status: "renamed",
+      oldPath: "src/old/sename.mjs",
+      hunks: [],
+      comments: [],
+    },
+    {
+      // A genuinely-new file diff present only in next ⇒ added.
+      id: "v3a",
+      kind: "diff",
+      path: "src/brandnew.mjs",
+      status: "added",
+      hunks: [],
+      comments: [],
+    },
+  ],
+};
+
+test("AC-R4 v3 diff blocks classify correctly (unchanged/modified/moved/added)", () => {
+  const r = diffDocuments(prevReview, nextReview);
+  assert.equal(r.byId.v3u.status, DIFF_STATUS.UNCHANGED, "v3u unchanged");
+  assert.equal(
+    r.byId.v3m.status,
+    DIFF_STATUS.MODIFIED,
+    "v3m modified (hunk line change ⇒ structural inequality)",
+  );
+  assert.equal(
+    r.byId.v3cm.status,
+    DIFF_STATUS.MODIFIED,
+    "v3cm modified (comment verdict/text change ⇒ structural inequality)",
+  );
+  assert.equal(
+    r.byId.v3pm.status,
+    DIFF_STATUS.MODIFIED,
+    "v3pm modified (path change)",
+  );
+  assert.equal(r.byId.v3mv.status, DIFF_STATUS.MOVED, "v3mv moved");
+  assert.equal(r.byId.v3a.status, DIFF_STATUS.ADDED, "v3a added");
+});
+
+test("AC-R4 v3 hunk/comment change carries NO word-diff (structural only)", () => {
+  const r = diffDocuments(prevReview, nextReview);
+  assert.deepEqual(
+    r.byId.v3m.fieldDiffs,
+    [],
+    "hunks are structural (diff TEXT_FIELDS is ['path']) — no word-diff",
+  );
+  assert.deepEqual(
+    r.byId.v3cm.fieldDiffs,
+    [],
+    "comments are structural — no word-diff on a verdict/text change",
+  );
+});
+
+test("AC-R4 v3 path change DOES carry a word-diff (path is a TEXT_FIELD)", () => {
+  const r = diffDocuments(prevReview, nextReview);
+  const fd = r.byId.v3pm.fieldDiffs;
+  assert.ok(
+    Array.isArray(fd) && fd.length > 0,
+    `expected a path word-diff, got ${JSON.stringify(fd)}`,
+  );
+  const pathFd = fd.find((f) => f.field === "path");
+  assert.ok(pathFd, "the word-diff must be over the 'path' field");
+  const added = pathFd.runs
+    .filter((x) => x.type !== "removed")
+    .map((x) => x.value)
+    .join("");
+  assert.equal(added, "src/new/name.mjs", "next path reconstructs from runs");
+});
+
+test("AC-R4 v3 diff is deterministic (byte-identical across runs)", () => {
+  const a = diffDocuments(prevReview, nextReview);
+  const b = diffDocuments(
+    JSON.parse(JSON.stringify(prevReview)),
+    JSON.parse(JSON.stringify(nextReview)),
+  );
+  assert.equal(JSON.stringify(a), JSON.stringify(b));
+});
+
 console.log("");
 console.log(`Structural diff tests: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

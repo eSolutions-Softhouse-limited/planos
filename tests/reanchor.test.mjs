@@ -543,6 +543,113 @@ test("AC-P4 re-minted v2 ids ⇒ comments carry to correct new v2 blocks", () =>
   accountAttach(vc2, "fc-new");
 });
 
+// ---------------------------------------------------------------------------
+// AC-R4 (Phase 3 / Milestone R0): re-anchoring over the v3 `diff` primary
+// field. PRIMARY_FIELD.diff=["path"] — the file path is the most stable
+// identity signal for a `diff` block (mirrors fileChange→path). The agent
+// re-minted the `diff` block id on the review revision (the AC-13 failure
+// case); a hunk-level review comment anchored to the old block id must carry
+// forward to the re-minted block on the unchanged path.
+// ---------------------------------------------------------------------------
+
+const prevReviewRA = {
+  schemaVersion: 1,
+  type: "diff-review",
+  id: "review-9",
+  title: "v3 reanchor fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 1 },
+  blocks: [
+    {
+      id: "diff-old",
+      kind: "diff",
+      path: "src/auth/login.mjs",
+      status: "modified",
+      hunks: [
+        {
+          header: "@@ -1,2 +1,2 @@",
+          oldStart: 1,
+          oldLines: 2,
+          newStart: 1,
+          newLines: 2,
+          lines: [
+            { op: " ", text: "function login() {" },
+            { op: "+", text: "  audit();" },
+          ],
+          hunkId: "diff-old-h0",
+        },
+      ],
+      comments: [],
+    },
+  ],
+};
+
+const nextReviewRA = {
+  schemaVersion: 1,
+  type: "diff-review",
+  id: "review-9",
+  title: "v3 reanchor fixture",
+  meta: { status: "in-review", createdAt: "2026-05-16T00:00:00Z", revision: 2 },
+  blocks: [
+    {
+      // id re-minted by the agent; path identical ⇒ unambiguous carry
+      // over PRIMARY_FIELD.diff=["path"] (the only diff in the doc ⇒ huge
+      // margin, second-best score 0).
+      id: "diff-new",
+      kind: "diff",
+      path: "src/auth/login.mjs",
+      status: "modified",
+      hunks: [
+        {
+          header: "@@ -1,3 +1,3 @@",
+          oldStart: 1,
+          oldLines: 3,
+          newStart: 1,
+          newLines: 3,
+          lines: [
+            { op: " ", text: "function login() {" },
+            { op: "+", text: "  audit();" },
+            { op: "+", text: "  return ok;" },
+          ],
+          hunkId: "diff-new-h0",
+        },
+      ],
+      comments: [],
+    },
+  ],
+};
+
+test("AC-R4 sim() resolves the v3 diff primary field (diff→path)", () => {
+  const a = { id: "1", kind: "diff", path: "src/auth/login.mjs" };
+  const b = { id: "2", kind: "diff", path: "src/auth/login.mjs" };
+  assert.equal(sim(a, b), 1, "diff primary field is `path` (normalized)");
+});
+
+test("AC-R4 re-minted v3 diff id ⇒ hunk comment carries to the new diff", () => {
+  const v3Comments = [
+    {
+      commentId: "hc1",
+      blockId: "diff-old",
+      text: "audit() should not throw on a logged-out user",
+    },
+  ];
+  const result = reanchorComments(prevReviewRA, nextReviewRA, v3Comments);
+
+  const hc1 = result.reattached.find((r) => r.commentId === "hc1");
+  assert.ok(hc1, "hc1 must re-attach (unambiguous diff path match)");
+  assert.equal(
+    hc1.toId,
+    "diff-new",
+    "hc1 carries to the re-minted diff block on the unchanged path",
+  );
+  assert.equal(hc1.flagged, true, "carried comments must be flagged for verify");
+  assert.equal(
+    result.orphaned.length,
+    0,
+    "an unambiguous path match must NOT orphan",
+  );
+  accountAttach(hc1, "diff-new");
+});
+
 console.log("");
 console.log(`Re-anchoring tests: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

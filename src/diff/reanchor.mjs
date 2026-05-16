@@ -106,6 +106,9 @@ const PRIMARY_FIELD = Object.freeze({
   code: ["filename", "content"],
   table: ["columns"],
   diagram: ["mermaid"],
+  // v3 kind — the file path is the most stable identity signal for a `diff`
+  // block (mirrors the fileChange:["path"] choice above).
+  diff: ["path"],
 });
 
 /** prose's primary text is the FIRST 200 chars of `md` (AC-13). */

@@ -51,6 +51,10 @@ const TEXT_FIELDS = Object.freeze({
   fileChange: ["path", "rationale"],
   code: ["content"],
   diagram: ["mermaid"],
+  // v3 kind — only `path` is a stable text-bearing identity field; `hunks`/
+  // `comments` are structural (like `table`), so canonical structural equality
+  // is the correct change detector for a hunk-/comment-content revision.
+  diff: ["path"],
 });
 
 const isObject = (v) =>

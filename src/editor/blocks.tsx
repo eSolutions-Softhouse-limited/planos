@@ -899,12 +899,19 @@ export function BlockRenderer({
     case 'diagram':
       body = <DiagramView block={block} />;
       break;
+    // v3 (diff-review-scoped) kind — Milestone R0 placeholder satisfying the
+    // exhaustiveness guard below. R4: full DiffView (file-path header, per-hunk
+    // unified-diff render, per-hunk accept/reject + comment affordance).
+    case 'diff':
+      body = null; // R4: full DiffView
+      break;
     default: {
-      // Exhaustiveness guard: every one of the 13 Block kinds (7 v1 + 6 v2)
-      // is handled above, so `block` is `never` here. If a new kind is added
-      // to the `Block` union without a case, this assignment fails to compile
-      // — a build-time completeness gate (plan §3 schema engine extension
-      // points). The runtime arm only renders if the type system is bypassed.
+      // Exhaustiveness guard: every one of the 14 Block kinds (7 v1 + 6 v2 +
+      // 1 v3) is handled above, so `block` is `never` here. If a new kind is
+      // added to the `Block` union without a case, this assignment fails to
+      // compile — a build-time completeness gate (plan §3 schema engine
+      // extension points). The runtime arm only renders if the type system is
+      // bypassed.
       const _never: never = block;
       body = <pre>{JSON.stringify(_never, null, 2)}</pre>;
     }

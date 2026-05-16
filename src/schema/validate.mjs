@@ -37,9 +37,29 @@ export const V2_KINDS = Object.freeze([
   "diagram",
 ]);
 
+/**
+ * The exact v3 block kinds (design.md §4 lines 151-153), in canonical order.
+ * v3 kinds are diff-review-scoped: only accepted in `type:"diff-review"`
+ * documents (R7 — keeps each doc-type's contract tight, mirrors D5(i)). A
+ * `type:"diff-review"` doc accepts v1∪v3 (NOT v2 PRD kinds — R7).
+ */
+export const V3_KINDS = Object.freeze(["diff"]);
+
 const KIND_LIST = V1_KINDS.join("|");
 const V2_KIND_SET = new Set(V2_KINDS);
+const V3_KIND_SET = new Set(V3_KINDS);
 const PRD_KIND_LIST = V1_KINDS.concat(V2_KINDS).join("|");
+/** A `type:"diff-review"` doc accepts v1∪v3 (R7); v2 PRD kinds are rejected. */
+const DIFF_REVIEW_KIND_LIST = V1_KINDS.concat(V3_KINDS).join("|");
+const DIFF_STATUS = Object.freeze([
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+  "binary",
+]);
+const DIFF_LINE_OPS = Object.freeze([" ", "+", "-"]);
+const BLOCK_COMMENT_VERDICTS = Object.freeze(["accept", "reject", "comment"]);
 const FILE_CHANGE_ACTIONS = Object.freeze(["add", "modify", "delete"]);
 const DOC_STATUS = Object.freeze(["draft", "in-review", "approved"]);
 const TASK_STATUS = Object.freeze(["todo", "doing", "done", "cut"]);
@@ -126,6 +146,29 @@ function checkNumber(holder, key, path, errors) {
       `${path}.${key} optional field must be a finite number when present but is ${show(
         v,
       )}`,
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validate that a REQUIRED integer field is an integer (optionally `>= 0`).
+ * Pushes a field-level error and returns false on a non-integer (or negative
+ * when `min` is given) value. Mirrors {@link checkNumber} but for required
+ * integers — the v3 `Hunk` line-range fields (`oldStart`/`oldLines`/...).
+ */
+function requireInteger(holder, key, path, errors, { min = null } = {}) {
+  const v = holder[key];
+  if (!isInteger(v)) {
+    errors.push(
+      `${path}.${key} is required and must be an integer but is ${show(v)}`,
+    );
+    return false;
+  }
+  if (min !== null && v < min) {
+    errors.push(
+      `${path}.${key} must be an integer >= ${min} but is ${show(v)}`,
     );
     return false;
   }
@@ -452,13 +495,158 @@ const KIND_VALIDATORS = {
   diagram(b, path, errors) {
     requireString(b, "mermaid", path, errors);
   },
+
+  // --- v3 kind (diff-review-scoped; design.md §4 lines 151-153) -----------
+
+  diff(b, path, errors) {
+    requireString(b, "path", path, errors);
+    if (!Array.isArray(b.hunks)) {
+      errors.push(
+        `${path} (diff) missing required field 'hunks' (Hunk[], may be empty for a binary/rename stub) — got ${show(
+          b.hunks,
+        )}`,
+      );
+    } else {
+      // Empty hunks[] is allowed (binary/rename stub — R6).
+      for (let i = 0; i < b.hunks.length; i++) {
+        validateHunk(b.hunks[i], `${path}.hunks[${i}]`, errors);
+      }
+    }
+    if (!Array.isArray(b.comments)) {
+      errors.push(
+        `${path} (diff) missing required field 'comments' (BlockComment[], may be empty) — got ${show(
+          b.comments,
+        )}`,
+      );
+    } else {
+      for (let i = 0; i < b.comments.length; i++) {
+        validateBlockComment(
+          b.comments[i],
+          `${path}.comments[${i}]`,
+          errors,
+        );
+      }
+    }
+    if (b.status !== undefined) {
+      checkEnum(b, "status", DIFF_STATUS, path, errors);
+    }
+    if (b.oldPath !== undefined && !isString(b.oldPath)) {
+      errors.push(
+        `${path} (diff) optional field 'oldPath' must be a string when present but is ${show(
+          b.oldPath,
+        )}`,
+      );
+    }
+  },
 };
+
+/**
+ * Validate a nested `Hunk` object (a `diff` block's `hunks[]` element). Pushes
+ * field-level errors; mirrors the `decision`/`tradeoff` options-array helper
+ * style. `hunkId` is a stable opaque per-hunk anchor (ADR-0001 recursively).
+ */
+function validateHunk(h, path, errors) {
+  if (!isObject(h)) {
+    errors.push(
+      `${path} must be an object {header,oldStart,oldLines,newStart,newLines,lines,hunkId} but is ${show(
+        h,
+      )}`,
+    );
+    return;
+  }
+  requireString(h, "header", path, errors);
+  requireInteger(h, "oldStart", path, errors);
+  requireInteger(h, "oldLines", path, errors, { min: 0 });
+  requireInteger(h, "newStart", path, errors);
+  requireInteger(h, "newLines", path, errors, { min: 0 });
+  if (!Array.isArray(h.lines)) {
+    errors.push(
+      `${path} (Hunk) missing required field 'lines' (DiffLine[]) — got ${show(
+        h.lines,
+      )}`,
+    );
+  } else {
+    for (let i = 0; i < h.lines.length; i++) {
+      validateDiffLine(h.lines[i], `${path}.lines[${i}]`, errors);
+    }
+  }
+  if (!isNonEmptyString(h.hunkId)) {
+    errors.push(
+      `${path}.hunkId is required and must be a non-empty string (the stable per-hunk anchor) but is ${show(
+        h.hunkId,
+      )}`,
+    );
+  }
+}
+
+/**
+ * Validate a nested `DiffLine` object. `text` is the line content WITHOUT the
+ * leading op char and MAY be empty (`isString`, not `isNonEmptyString` —
+ * mirrors `code.content`).
+ */
+function validateDiffLine(line, path, errors) {
+  if (!isObject(line)) {
+    errors.push(
+      `${path} must be an object {op,text} but is ${show(line)}`,
+    );
+    return;
+  }
+  checkEnum(line, "op", DIFF_LINE_OPS, path, errors);
+  if (!isString(line.text)) {
+    errors.push(
+      `${path} (DiffLine) missing required field 'text' (string, may be empty) — got ${show(
+        line.text,
+      )}`,
+    );
+  }
+}
+
+/**
+ * Validate a nested `BlockComment` object (a `diff` block's `comments[]`
+ * element). `hunkId` is the `Hunk.hunkId` this comment anchors to, OR `null`
+ * for a file-level comment. `verdict` carries the per-hunk review verdict
+ * (R5: reuse this shape; NO new envelope op).
+ */
+function validateBlockComment(c, path, errors) {
+  if (!isObject(c)) {
+    errors.push(
+      `${path} must be an object {commentId,hunkId,text,verdict} but is ${show(
+        c,
+      )}`,
+    );
+    return;
+  }
+  if (!isNonEmptyString(c.commentId)) {
+    errors.push(
+      `${path}.commentId is required and must be a non-empty string (stable) but is ${show(
+        c.commentId,
+      )}`,
+    );
+  }
+  // hunkId: a Hunk.hunkId string, OR null for a file-level comment.
+  if (c.hunkId !== null && !isString(c.hunkId)) {
+    errors.push(
+      `${path}.hunkId is required and must be a string (the Hunk.hunkId) or null (file-level comment) but is ${show(
+        c.hunkId,
+      )}`,
+    );
+  }
+  requireString(c, "text", path, errors);
+  checkEnum(c, "verdict", BLOCK_COMMENT_VERDICTS, path, errors);
+}
 
 function validateBlock(block, index, errors, docType) {
   const path = `blocks[${index}]`;
   // v2 kinds are PRD-scoped (D5(i)): only `type:"prd"` documents accept them.
+  // v3 `diff` is diff-review-scoped (R7): only `type:"diff-review"` documents
+  // accept it, and a diff-review doc accepts v1∪v3 (NOT v2 PRD kinds).
   const isPrd = docType === "prd";
-  const validKindList = isPrd ? PRD_KIND_LIST : KIND_LIST;
+  const isDiffReview = docType === "diff-review";
+  const validKindList = isPrd
+    ? PRD_KIND_LIST
+    : isDiffReview
+      ? DIFF_REVIEW_KIND_LIST
+      : KIND_LIST;
   if (!isObject(block)) {
     errors.push(`${path} must be an object but is ${show(block)}`);
     return;
@@ -478,15 +666,32 @@ function validateBlock(block, index, errors, docType) {
     );
     return;
   }
-  // A v2 kind in a non-PRD document is a field-level rejection: keeps the
-  // plan-mode v1 contract tight (D5(i)).
+  // A v2 kind outside a PRD document is a field-level rejection: keeps the
+  // plan-mode v1 contract (and the diff-review v1∪v3 contract) tight (D5(i) /
+  // R7 — v2 PRD kinds are NOT meaningful in a diff-review doc).
   if (!isPrd && V2_KIND_SET.has(block.kind)) {
     errors.push(
       `${path}.kind ${show(
         block.kind,
       )} is a v2 PRD-only kind and is not allowed in a type:'${
         docType === undefined ? "plan" : docType
-      }' document (expected one of ${KIND_LIST}; v2 kinds require type:'prd')`,
+      }' document (expected one of ${
+        isDiffReview ? DIFF_REVIEW_KIND_LIST : KIND_LIST
+      }; v2 kinds require type:'prd')`,
+    );
+    return;
+  }
+  // A v3 `diff` kind outside a diff-review document is a field-level rejection:
+  // keeps the plan-mode v1 / PRD v1∪v2 contracts tight (R7, mirror of D5(i)).
+  if (!isDiffReview && V3_KIND_SET.has(block.kind)) {
+    errors.push(
+      `${path}.kind ${show(
+        block.kind,
+      )} is a v3 diff-review-only kind and is not allowed in a type:'${
+        docType === undefined ? "plan" : docType
+      }' document (expected one of ${
+        isPrd ? PRD_KIND_LIST : KIND_LIST
+      }; the 'diff' kind requires type:'diff-review')`,
     );
     return;
   }
@@ -496,7 +701,7 @@ function validateBlock(block, index, errors, docType) {
       `${path}.kind ${show(
         block.kind,
       )} is not a valid ${
-        isPrd ? "v1∪v2" : "v1"
+        isPrd ? "v1∪v2" : isDiffReview ? "v1∪v3" : "v1"
       } kind (expected one of ${validKindList})`,
     );
     return;

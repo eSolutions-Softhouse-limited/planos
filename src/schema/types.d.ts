@@ -159,7 +159,60 @@ export interface DiagramBlock {
   mermaid: string;
 }
 
-/** v1∪v2 discriminated union — discriminant is `kind`. */
+// ---------------------------------------------------------------------------
+// v3 block kind (diff-review-scoped — design.md §4 lines 151-153). The runtime
+// mirror is `validate.mjs` (V3_KINDS + KIND_VALIDATORS.diff). v3 `diff` is
+// accepted ONLY in `type:"diff-review"` documents; a `type:"diff-review"`
+// document accepts v1∪v3 (NOT v2 PRD kinds — R7).
+// ---------------------------------------------------------------------------
+
+/** A single unified-diff line. `text` is the content WITHOUT the op char. */
+export interface DiffLine {
+  /** `" "` context | `"+"` added | `"-"` removed. */
+  op: " " | "+" | "-";
+  /** The line content without the leading op char; may be empty. */
+  text: string;
+}
+
+/** One `@@`-delimited hunk. `hunkId` is a stable opaque per-hunk anchor. */
+export interface Hunk {
+  /** The `@@ -a,b +c,d @@` line (may carry a section heading). */
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+  /** Stable per-hunk anchor for accept/reject/comment (ADR-0001 recursively). */
+  hunkId: string;
+}
+
+/** A per-hunk (or file-level) review comment carrying a verdict (R5). */
+export interface BlockComment {
+  /** Stable opaque comment id. */
+  commentId: string;
+  /** The `Hunk.hunkId` this anchors to, or `null` for a file-level comment. */
+  hunkId: string | null;
+  text: string;
+  /** The per-hunk review verdict carried alongside the comment text. */
+  verdict: "accept" | "reject" | "comment";
+}
+
+/** A concrete file diff with per-hunk lines and per-hunk review comments. */
+export interface DiffBlock {
+  id: string;
+  kind: "diff";
+  path: string;
+  /** May be empty for a binary/rename stub (R6). */
+  hunks: Hunk[];
+  /** Per-hunk/file-level review comments; may be empty. */
+  comments: BlockComment[];
+  status?: "added" | "modified" | "deleted" | "renamed" | "binary";
+  /** Present only for a renamed file (the pre-rename path). */
+  oldPath?: string;
+}
+
+/** v1∪v2∪v3 discriminated union — discriminant is `kind`. */
 export type Block =
   | SectionBlock
   | ProseBlock
@@ -173,9 +226,10 @@ export type Block =
   | FileChangeBlock
   | CodeBlock
   | TableBlock
-  | DiagramBlock;
+  | DiagramBlock
+  | DiffBlock;
 
-/** Set of valid v1∪v2 `kind` discriminants. */
+/** Set of valid v1∪v2∪v3 `kind` discriminants. */
 export type BlockKind = Block["kind"];
 
 export interface DocumentMeta {
