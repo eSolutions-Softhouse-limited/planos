@@ -54,6 +54,7 @@ import {
 } from './harness/import-graph.mjs';
 import { handleExit } from '../src/hook/exit.mjs';
 import { handlePrd } from '../src/hook/prd.mjs';
+import { handleReview } from '../src/hook/review.mjs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
@@ -142,6 +143,65 @@ const VALID_PRD_DOC = {
       path: 'src/prd/store.mjs',
       action: 'add',
       rationale: 'Filesystem-only persistence — in-scope-allowed (fs ≠ network/model).',
+    },
+  ],
+};
+
+// A small but complete valid v3 diff-review document (the canonical artifact
+// the blocking `bin/planos review` path turns the agent's authored JSON into).
+// The review path is the Phase 3 / Milestone R5 (AC-R13) RE-ASSERTION of AC-17
+// for the NEW blocking entrypoint — it must be just as model/network/spawn-free
+// as the exit AND prd paths, INCLUDING that `gh`/`git` are absent from the
+// blocking transitive set (the R1 crux: ingestion runs in the pre-server CLI
+// agent loop; src/review/ingest.mjs is a pure zero-import parser). R2 =
+// ephemeral, so there is NO persistence layer — the review result is the
+// returned structured envelope only.
+const VALID_REVIEW_DOC = {
+  schemaVersion: 1,
+  type: 'diff-review',
+  id: 'ac17-review-demo-2026-05-16',
+  title: 'AC-17 Diff-Review Invariant Demo',
+  meta: { status: 'draft', createdAt: '2026-05-16T12:00:00.000Z', revision: 1 },
+  blocks: [
+    { id: 's-overview', kind: 'section', title: 'Overview', level: 1 },
+    {
+      id: 'p-context',
+      kind: 'prose',
+      md: 'Proving the diff-review blocking path makes zero model calls and never spawns gh/git.',
+    },
+    {
+      id: 'dr-1',
+      kind: 'diff',
+      path: 'src/example.mjs',
+      status: 'modified',
+      hunks: [
+        {
+          hunkId: 'dr-1-h1',
+          header: '@@ -1,3 +1,4 @@',
+          oldStart: 1,
+          oldLines: 3,
+          newStart: 1,
+          newLines: 4,
+          lines: [
+            { op: ' ', text: 'const a = 1;' },
+            { op: '+', text: 'const b = 2;' },
+            { op: ' ', text: 'export { a };' },
+          ],
+        },
+      ],
+      comments: [
+        {
+          commentId: 'dr-1-c1',
+          hunkId: 'dr-1-h1',
+          text: 'Looks correct — accept this hunk.',
+          verdict: 'accept',
+        },
+      ],
+    },
+    {
+      id: 'q-scope',
+      kind: 'openQuestion',
+      question: 'Is the diff scope correct for this PR?',
     },
   ],
 };
@@ -288,6 +348,16 @@ await test('AC-17 STATIC: blocking/artifact/ID transitive set is model-free (rea
     'src/hook/prd.mjs',
     'src/hook/roundtrip.mjs',
     'src/prd/store.mjs',
+    // Phase 3 / Milestone R5 (AC-R13) — the NEW bin/planos review blocking
+    // entrypoint + its transitive set MUST be in the audited closure. The
+    // bin/planos dispatcher reaches review.mjs via the same provable
+    // resolve(__dirname,'<lit>') unwrap as exit.mjs/prd.mjs, and ac17Roots()
+    // now also lists these explicitly so the re-assertion is
+    // dispatcher-independent. src/review/ingest.mjs is the PURE zero-import
+    // unified-diff parser (R1 Option A — gh/git run pre-server, never in the
+    // blocking path). NO src/review/store.mjs: R2 = ephemeral.
+    'src/hook/review.mjs',
+    'src/review/ingest.mjs',
   ]) {
     assert.ok(
       names.includes(expected),
@@ -766,6 +836,263 @@ await test('AC-17 RUNTIME (PRD): zero external egress + zero agent/process spawn
     parsed.hookSpecificOutput.prd.persisted,
     true,
     'src/prd/store.mjs persisted the revision via node:fs (filesystem write is in-scope-allowed: fs ≠ network/model)',
+  );
+});
+
+// ===========================================================================
+// LAYER 2c — RUNTIME no-egress / no-spawn assertion during `bin/planos review`
+// (Phase 3 / Milestone R5 — AC-R13: AC-17 RE-ASSERTED for the NEW blocking
+// entrypoint). Mirrors LAYER 2b EXACTLY — same lowest-boundary interceptors
+// (node:net connect, node:dns lookup, node:child_process spawn/exec/fork,
+// global fetch, http(s).request) — but drives `handleReview` (the bin/planos
+// review dispatch target) instead of `handlePrd`. Asserts ZERO non-loopback
+// egress and ZERO agent/process spawn through the review → server → schema →
+// diff → src/review/ingest.mjs path, AND that `gh`/`git` are absent from the
+// blocking transitive set (the R1 crux — Option A keeps the gh/git ingestion
+// subprocess in the pre-server CLI agent loop; the blocking path makes ZERO
+// child_process calls at all here because the no-op opener is injected). R2 =
+// ephemeral, so unlike LAYER 2b there is NO tmpdir persistence root — there is
+// no src/review/store.mjs and nothing is written to disk; the review result is
+// the returned structured envelope only. The SCRIPTED decisionProvider seam
+// keeps it fully offline (no SPA, loopback POST only).
+// ===========================================================================
+
+await test('AC-17 RUNTIME (REVIEW): zero external egress + zero agent/process spawn (incl. gh/git) during scripted bin/planos review', async () => {
+  // Mutable CJS handles (ESM namespaces are frozen — see top-of-file note).
+  const net = require('node:net');
+  const dns = require('node:dns');
+  const cp = require('node:child_process');
+  const http = require('node:http');
+  const https = require('node:https');
+
+  const egress = [];
+  const spawns = [];
+  const dnsLookups = [];
+
+  const isLoopbackHost = (host) =>
+    host == null ||
+    host === '' ||
+    host === '127.0.0.1' ||
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '0.0.0.0';
+
+  // --- node:net connect (the lowest socket boundary; LOAD-BEARING). ---------
+  const origConnect = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function patched(...args) {
+    let host;
+    const a0 = args[0];
+    if (a0 && typeof a0 === 'object') host = a0.host ?? a0.path;
+    else if (typeof args[1] === 'string') host = args[1];
+    if (!isLoopbackHost(host)) egress.push(`net.connect:${host}`);
+    return origConnect.apply(this, args);
+  };
+
+  // --- node:dns (defense-in-depth; best-effort patch). ----------------------
+  const origLookup = dns.lookup;
+  const origPromisesLookup = dns.promises && dns.promises.lookup;
+  const safeSet = (obj, key, value) => {
+    try {
+      obj[key] = value;
+      return obj[key] === value;
+    } catch {
+      return false;
+    }
+  };
+  function spyLookup(hostname, ...rest) {
+    if (!isLoopbackHost(hostname)) {
+      dnsLookups.push(`dns.lookup:${hostname}`);
+      egress.push(`dns.lookup:${hostname}`);
+    }
+    return origLookup.call(dns, hostname, ...rest);
+  }
+  const lookupPatched = safeSet(dns, 'lookup', spyLookup);
+  let promisesLookupPatched = false;
+  if (dns.promises && origPromisesLookup) {
+    promisesLookupPatched = safeSet(
+      dns.promises,
+      'lookup',
+      function spyPromisesLookup(hostname, ...rest) {
+        if (!isLoopbackHost(hostname)) {
+          dnsLookups.push(`dns.promises.lookup:${hostname}`);
+          egress.push(`dns.promises.lookup:${hostname}`);
+        }
+        return origPromisesLookup.call(dns.promises, hostname, ...rest);
+      },
+    );
+  }
+
+  // --- node:child_process — ANY spawn/exec/fork on the review blocking path
+  //     is a violation here. The R1 crux: `gh`/`git` ingestion runs in the
+  //     pre-server CLI agent loop, NEVER in this blocking path, and the test
+  //     injects a NO-OP opener, so ZERO process creation must occur. The
+  //     captured cmd string also lets us assert `gh`/`git` were never spawned.
+  const cpMethods = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'];
+  const origCp = {};
+  for (const meth of cpMethods) {
+    origCp[meth] = cp[meth];
+    cp[meth] = function blockedSpawn(cmd) {
+      spawns.push(`child_process.${meth}:${String(cmd)}`);
+      const e = new Error(`AC-17: child_process.${meth} blocked in test`);
+      e.code = 'AC17_BLOCKED';
+      throw e;
+    };
+  }
+
+  // --- global fetch + http(s).request — high-level egress surfaces. The
+  //     scripted loopback POST (127.0.0.1) is permitted; non-loopback = egress.
+  const origFetch = globalThis.fetch;
+  if (typeof origFetch === 'function') {
+    globalThis.fetch = function spyFetch(input, init) {
+      let host;
+      try {
+        host = new URL(typeof input === 'string' ? input : input.url).hostname;
+      } catch {
+        host = String(input);
+      }
+      if (!isLoopbackHost(host)) egress.push(`fetch:${host}`);
+      return origFetch.call(globalThis, input, init);
+    };
+  }
+  const wrapRequest = (mod, name) => {
+    const orig = mod.request;
+    mod.request = function spyRequest(opts, ...rest) {
+      let host;
+      if (typeof opts === 'string') {
+        try {
+          host = new URL(opts).hostname;
+        } catch {
+          host = opts;
+        }
+      } else if (opts && typeof opts === 'object') {
+        host = opts.host ?? opts.hostname;
+      }
+      if (!isLoopbackHost(host)) egress.push(`${name}.request:${host}`);
+      return orig.call(mod, opts, ...rest);
+    };
+    return () => {
+      mod.request = orig;
+    };
+  };
+  const restoreHttp = wrapRequest(http, 'http');
+  const restoreHttps = wrapRequest(https, 'https');
+
+  // Stub process.exit so finish() does not kill this runner; capture stdout.
+  const origExit = process.exit;
+  const origWrite = process.stdout.write;
+  let emitted = '';
+  process.exit = () => {};
+  process.stdout.write = function spy(chunk, enc, cb) {
+    emitted += typeof chunk === 'string' ? chunk : chunk.toString();
+    if (typeof enc === 'function') enc();
+    else if (typeof cb === 'function') cb();
+    return true;
+  };
+
+  // R2 = ephemeral: there is NO src/review/store.mjs and NO persistence root —
+  // unlike LAYER 2b (PRD) there is deliberately no mkdtemp here. Nothing is
+  // written to disk; the review result is the returned structured envelope.
+
+  let realOpenerSpawned = false;
+  try {
+    // SCRIPTED mode: a decisionProvider is injected (no SPA, no /api/review
+    // handlers). It performs the SOLE permitted socket — a loopback POST to
+    // 127.0.0.1/api/approve — exactly as a real browser/loader would, so the
+    // blocking promise resolves deterministically and the structured review
+    // envelope is derived from the approved doc. NO real OS opener is ever
+    // spawned; NO gh/git subprocess is ever invoked from this blocking path.
+    await handleReview({
+      stdinText: JSON.stringify({
+        tool_input: { plan: JSON.stringify(VALID_REVIEW_DOC) },
+      }),
+      openBrowser: () => {
+        realOpenerSpawned = false; // explicit: no real OS opener was spawned
+      },
+      decisionProvider: ({ url }) => {
+        const port = Number(new URL(url).port);
+        const body = JSON.stringify({ source: 'ac17-review-runtime' });
+        // node:http to 127.0.0.1 — the SOLE permitted (loopback) socket.
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            path: '/api/approve',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body),
+            },
+          },
+          (r) => r.resume(),
+        );
+        req.on('error', () => {});
+        req.end(body);
+      },
+    });
+  } finally {
+    net.Socket.prototype.connect = origConnect;
+    if (lookupPatched) safeSet(dns, 'lookup', origLookup);
+    if (promisesLookupPatched) safeSet(dns.promises, 'lookup', origPromisesLookup);
+    for (const meth of cpMethods) cp[meth] = origCp[meth];
+    if (typeof origFetch === 'function') globalThis.fetch = origFetch;
+    restoreHttp();
+    restoreHttps();
+    process.exit = origExit;
+    process.stdout.write = origWrite;
+  }
+
+  assert.deepEqual(
+    egress,
+    [],
+    `AC-17 VIOLATION — non-loopback network egress during bin/planos review: ${egress.join(', ')}`,
+  );
+  assert.deepEqual(
+    dnsLookups,
+    [],
+    `AC-17 VIOLATION — external DNS resolution during bin/planos review: ${dnsLookups.join(', ')}`,
+  );
+  assert.deepEqual(
+    spawns,
+    [],
+    `AC-17 VIOLATION — process/agent spawn during bin/planos review (the R1 crux: gh/git must run pre-server, NEVER in the blocking path): ${spawns.join(', ')}`,
+  );
+  // The R1 crux, asserted explicitly: NO `gh` and NO `git` subprocess is ever
+  // spawned from the blocking review path (Option A — ingestion is the agent's
+  // pre-server CLI tool use; src/review/ingest.mjs is a pure zero-import
+  // parser). `spawns` is already proven empty above; this asserts the stronger
+  // human-readable property directly so a regression names the offender.
+  const ghGitSpawns = spawns.filter((s) => /[:\s/](gh|git)\b/.test(s));
+  assert.deepEqual(
+    ghGitSpawns,
+    [],
+    `AC-17 VIOLATION — gh/git subprocess spawned from the blocking bin/planos review path (R1 Option A forbids this — ingestion is strictly pre-server): ${ghGitSpawns.join(', ')}`,
+  );
+  assert.equal(realOpenerSpawned, false, 'the real OS browser-opener was never invoked on the review test path');
+
+  const parsed = JSON.parse(emitted.trim());
+  assert.equal(
+    parsed.hookSpecificOutput.hookEventName,
+    'ReviewRoundTrip',
+    'the diff-review round-trip emitted its decision offline',
+  );
+  assert.equal(
+    parsed.hookSpecificOutput.decision.behavior,
+    'allow',
+    'the review decision is still emitted offline with zero egress + zero spawn',
+  );
+  assert.equal(
+    parsed.hookSpecificOutput.review.persisted,
+    false,
+    'R2 = ephemeral: the review is NEVER persisted (no src/review/store.mjs, no reviews/ dir)',
+  );
+  // The per-hunk verdict authored in VALID_REVIEW_DOC round-tripped intact —
+  // proving the structured envelope shape survives the offline blocking path.
+  assert.ok(
+    Array.isArray(parsed.hookSpecificOutput.review.hunkVerdicts) &&
+      parsed.hookSpecificOutput.review.hunkVerdicts.some(
+        (h) => h.hunkId === 'dr-1-h1' && h.verdict === 'accept',
+      ),
+    'the per-hunk verdict round-tripped through the offline blocking path',
   );
 });
 

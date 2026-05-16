@@ -578,6 +578,24 @@ export function walkImportGraph(roots) {
  * forbidden specifier; node:fs likewise is allowed and never traversed as a
  * forbidden module). The walk MUST remain VERDICT CLEAN with these added.
  *
+ * Phase 3 / Milestone R5 (AC-R13): the `bin/planos review` blocking entrypoint
+ * and its transitive set are added EXPLICITLY here too — `src/hook/review.mjs`
+ * + `src/review/ingest.mjs`. The reasoning is VERBATIM the Phase-2 P5 argument
+ * above: the `bin/planos` dispatcher already reaches `review.mjs` via the SAME
+ * provable `resolve(__dirname,'<lit>')` unwrap it uses for `exit.mjs`/`prd.mjs`
+ * (the `review` case in plugin/bin/planos), so the real graph walk already
+ * follows that edge; listing the review roots explicitly (mirroring how
+ * `src/hook/prd.mjs` is listed alongside `bin/planos`) makes the AC-17
+ * re-assertion dispatcher-independent and pins the review transitive closure
+ * into the audited set directly. `src/review/ingest.mjs` is a PURE text→blocks
+ * unified-diff parser with ZERO imports (R1 Option A — the `gh`/`git`
+ * subprocess runs in the pre-server CLI agent loop, NEVER in this blocking
+ * path), so it joins the audited set as a pure-logic leaf exactly like
+ * `src/diff/structural.mjs`. There is deliberately NO `src/review/store.mjs`
+ * root: R2 = ephemeral, so there is no review persistence module and no
+ * filesystem-write boundary to add for the review path. The walk MUST remain
+ * VERDICT CLEAN with these added.
+ *
  * @returns {string[]} absolute root module paths
  */
 export function ac17Roots() {
@@ -593,6 +611,15 @@ export function ac17Roots() {
     resolve(repo, 'src/hook/prd.mjs'),
     resolve(repo, 'src/hook/roundtrip.mjs'),
     resolve(repo, 'src/prd/store.mjs'),
+    // Phase 3 (AC-R13) — the bin/planos review blocking entrypoint + its
+    // transitive set. bin/planos already dynamically imports review.mjs via the
+    // SAME provable resolve(__dirname,'<lit>') unwrap as exit.mjs/prd.mjs; these
+    // explicit roots make the AC-17 re-assertion dispatcher-independent.
+    // src/review/ingest.mjs is the PURE zero-import unified-diff parser (R1
+    // Option A — gh/git run pre-server, NEVER in this blocking path). NO store
+    // root: R2 = ephemeral, there is no src/review/store.mjs.
+    resolve(repo, 'src/hook/review.mjs'),
+    resolve(repo, 'src/review/ingest.mjs'),
     resolve(repo, 'src/schema/index.mjs'),
     resolve(repo, 'src/schema/validate.mjs'),
     resolve(repo, 'src/schema/fallback.mjs'),
