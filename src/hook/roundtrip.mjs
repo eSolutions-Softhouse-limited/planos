@@ -18,6 +18,8 @@
 
 'use strict';
 
+import { readFileSync } from 'node:fs';
+
 // ---------------------------------------------------------------------------
 // stdin (production-hardened — US-013)
 // ---------------------------------------------------------------------------
@@ -66,6 +68,28 @@ export function readStdin(opts = {}) {
     typeof opts.maxBytes === 'number' && opts.maxBytes > 0
       ? opts.maxBytes
       : MAX_STDIN_BYTES;
+
+  // File/env input seam (backward-compatible). When PLANOS_DOC_FILE points to
+  // a readable path, read the document from that file instead of stdin. Some
+  // host harnesses (e.g. Claude Code's background runner) replace a backgrounded
+  // process's stdin with /dev/null, which would otherwise degrade the doc to
+  // the empty prose fallback. This is a pure fs read — no network, no model,
+  // no spawn (the blocking-path AC-17 invariant is preserved). When the env
+  // var is unset/blank or the file is unreadable, behaviour is unchanged: we
+  // fall through to the original stdin reader (degrade, never crash).
+  const docFile = process.env.PLANOS_DOC_FILE;
+  if (typeof docFile === 'string' && docFile.trim() !== '') {
+    try {
+      const buf = readFileSync(docFile.trim());
+      const text =
+        buf.length > maxBytes
+          ? buf.subarray(0, maxBytes).toString('utf8')
+          : buf.toString('utf8');
+      return Promise.resolve(text);
+    } catch {
+      // Missing/unreadable PLANOS_DOC_FILE — fall through to stdin.
+    }
+  }
 
   return new Promise((resolve) => {
     const chunks = [];

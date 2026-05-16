@@ -1370,7 +1370,7 @@ async function handleEnter() {
 }
 
 // src/hook/exit.mjs
-import { readFileSync as readFileSync2, existsSync } from "node:fs";
+import { readFileSync as readFileSync3, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname as dirname2, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -1600,11 +1600,21 @@ function coexistenceGuard(opts = {}) {
 }
 
 // src/hook/roundtrip.mjs
+import { readFileSync as readFileSync2 } from "node:fs";
 var MAX_STDIN_BYTES = 16 * 1024 * 1024;
 var STDIN_TIMEOUT_MS = 30 * 1e3;
 function readStdin(opts = {}) {
   const timeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs >= 0 ? opts.timeoutMs : STDIN_TIMEOUT_MS;
   const maxBytes = typeof opts.maxBytes === "number" && opts.maxBytes > 0 ? opts.maxBytes : MAX_STDIN_BYTES;
+  const docFile = process.env.PLANOS_DOC_FILE;
+  if (typeof docFile === "string" && docFile.trim() !== "") {
+    try {
+      const buf = readFileSync2(docFile.trim());
+      const text = buf.length > maxBytes ? buf.subarray(0, maxBytes).toString("utf8") : buf.toString("utf8");
+      return Promise.resolve(text);
+    } catch {
+    }
+  }
   return new Promise((resolve3) => {
     const chunks = [];
     let total = 0;
@@ -1911,7 +1921,7 @@ function buildSpaHtml(doc) {
   let html = null;
   if (typeof SPA_HTML_PATH === "string") {
     try {
-      html = readFileSync2(SPA_HTML_PATH, "utf8");
+      html = readFileSync3(SPA_HTML_PATH, "utf8");
     } catch {
       html = null;
     }
@@ -2013,7 +2023,7 @@ async function handleExit(options = {}) {
 }
 
 // src/prd/store.mjs
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync3, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync4, writeFileSync } from "node:fs";
 import { readdirSync as readdirSync2 } from "node:fs";
 import { join as join2, resolve as resolve2, sep, isAbsolute } from "node:path";
 var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -2056,7 +2066,7 @@ function prdPath(rootDir, docId) {
 }
 function tryReadJson(filePath) {
   try {
-    const raw = readFileSync3(filePath, "utf8");
+    const raw = readFileSync4(filePath, "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
