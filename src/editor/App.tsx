@@ -16,6 +16,7 @@ import {
   emitEnvelope,
   fetchTransport,
 } from './envelope';
+import { ExportControls, PrintStyles, SCREEN_ONLY_ATTR } from './export';
 import { loadDocument } from './loader';
 import { ThemeProvider, useTheme, useThemeControl } from './theme';
 import {
@@ -164,6 +165,7 @@ function AppInner({
 
   return (
     <div style={shell}>
+      <PrintStyles />
       <header
         style={{
           background: theme.headerBg,
@@ -189,7 +191,18 @@ function AppInner({
         >
           rev {doc.meta.revision} · {doc.meta.status}
         </span>
-        <ThemeToggle />
+        <span
+          {...{ [SCREEN_ONLY_ATTR]: '' }}
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <ExportControls doc={doc} />
+          <ThemeToggle />
+        </span>
       </header>
 
       <main style={{ maxWidth: 800, margin: '0 auto', padding: '28px 16px' }}>
@@ -244,9 +257,12 @@ function AppInner({
           ))}
         </div>
 
-        <HistoryBrowser />
+        <div {...{ [SCREEN_ONLY_ATTR]: '' }}>
+          <HistoryBrowser />
+        </div>
 
         <div
+          {...{ [SCREEN_ONLY_ATTR]: '' }}
           style={{
             background: theme.surface,
             border: `1px solid ${theme.border}`,
@@ -279,6 +295,7 @@ function AppInner({
           </label>
         </div>
 
+        <div {...{ [SCREEN_ONLY_ATTR]: '' }}>
         {decision === 'idle' ? (
           <div style={{ display: 'flex', gap: 12 }}>
             <button
@@ -343,6 +360,7 @@ function AppInner({
               : 'Revision requested — feedback captured.'}
           </div>
         )}
+        </div>
       </main>
     </div>
   );

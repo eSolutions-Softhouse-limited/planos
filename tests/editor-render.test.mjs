@@ -271,6 +271,159 @@ test('AC-Q2 bundle ships both theme palettes + the toggle + prefers-color-scheme
   );
 });
 
+// ---------------------------------------------------------------------------
+// Phase 4 / Milestone Q3 — SPA export affordances (markdown download +
+// print-to-PDF). Non-visual: assert the bundled SPA ships the "Download .md"
+// affordance whose click path is serializeMarkdown → Blob → a[download] with
+// NO network in the export path, the "Print / Save as PDF" affordance that
+// invokes window.print(), the @media print rules that hide interactive chrome,
+// and that NO new runtime dependency was added to package.json (Resolved
+// Decision Q4 = browser print, zero PDF library). The visual paper-layout demo
+// is the [M] manual smoke.
+// ---------------------------------------------------------------------------
+
+test('AC-Q7 bundle ships the "Download .md" click→serializeMarkdown→Blob→a[download] path, NO network', () => {
+  // User-visible affordance string survives minification verbatim.
+  assert.ok(
+    html.includes('Download .md'),
+    'bundle missing the "Download .md" export affordance'
+  );
+  assert.ok(
+    html.includes('Download markdown'),
+    'bundle missing the "Download .md" aria-label'
+  );
+  // The pure Q0 serializer is bundled in-browser: a stable serializer-internal
+  // literal (the canonical "Untitled" H1 fallback + the degraded marker) only
+  // exists in src/export/markdown.mjs and survives minification verbatim.
+  assert.ok(
+    html.includes('Untitled') && html.includes('degraded'),
+    'bundle missing the in-browser serializeMarkdown code path (Q0 serializer)'
+  );
+  // The client-side download wiring: Blob of text/markdown + a transient
+  // a[download] driven by an object URL. The minifier preserves string
+  // literals + the .download / Blob / createObjectURL member names.
+  for (const needle of [
+    'text/markdown',
+    'Blob',
+    'createObjectURL',
+    'download',
+    'revokeObjectURL',
+  ]) {
+    assert.ok(
+      html.includes(needle),
+      `bundle missing client-side download wiring token: ${needle}`
+    );
+  }
+  // AC-Q7 NO network in the export path: the export module imports the PURE
+  // Q0 serializer only and uses no fetch/XHR/network. Assert the export module
+  // source itself has zero network surface (the bundle as a whole legitimately
+  // contains `fetch` for the loader/envelope; the *export path* must not).
+  const exportSrc = readFileSync(
+    join(ROOT, 'src', 'editor', 'export.tsx'),
+    'utf8'
+  );
+  for (const banned of [
+    'fetch(',
+    'XMLHttpRequest',
+    'navigator.sendBeacon',
+    'WebSocket',
+    'EventSource',
+  ]) {
+    assert.ok(
+      !exportSrc.includes(banned),
+      `src/editor/export.tsx must have ZERO network in the export path; found: ${banned}`
+    );
+  }
+  // Positive: the export module consumes the pure Q0 serializer (the dual
+  // SPA + CLI consumption the serializer is designed for).
+  assert.ok(
+    /serializeMarkdown/.test(exportSrc) &&
+      /from '\.\.\/export\/markdown\.mjs'/.test(exportSrc),
+    'src/editor/export.tsx must import serializeMarkdown from the pure Q0 serializer'
+  );
+});
+
+test('AC-Q8 bundle ships "Print / Save as PDF" → window.print() + the @media print chrome-hiding stylesheet', () => {
+  // User-visible affordance string survives minification verbatim.
+  assert.ok(
+    html.includes('Print / Save as PDF'),
+    'bundle missing the "Print / Save as PDF" export affordance'
+  );
+  assert.ok(
+    html.includes('Print or Save as PDF'),
+    'bundle missing the "Print / Save as PDF" aria-label'
+  );
+  // The button invokes the browser-native window.print() (zero-dep PDF, Q4).
+  // The minifier preserves the `.print()` member call + the `print` literal.
+  assert.ok(
+    /\.print\(\)/.test(html),
+    'bundle missing the window.print() invocation (Q4 zero-dep print-to-PDF)'
+  );
+  // The @media print block is present and hides interactive chrome. The
+  // screen-only marker is a stable string literal; the print rules are emitted
+  // through a media="print" <style> built from a template literal whose
+  // selector interpolates that marker, so the marker literal + the CSS rule
+  // fragments survive minification verbatim (the selector itself is composed
+  // at runtime, so we assert the marker literal + the rule bodies, not a
+  // pre-composed `[data-planos-screen-only]{...}` string).
+  assert.ok(
+    html.includes('"data-planos-screen-only"') ||
+      html.includes("'data-planos-screen-only'"),
+    'bundle missing the screen-only marker the @media print block hides'
+  );
+  assert.ok(
+    html.includes('{ display: none !important; }'),
+    'bundle missing the @media print rule that hides the marked interactive chrome'
+  );
+  assert.ok(
+    html.includes('@page { margin: 16mm; }') &&
+      html.includes('max-width: none !important'),
+    'bundle missing the @media print paper-layout rules'
+  );
+  // The print rules are scoped to print only (media="print" attribute on the
+  // injected <style>) so screen rendering is untouched.
+  assert.ok(
+    /media\s*=\s*["']print["']/.test(html) ||
+      html.includes('media:"print"') ||
+      html.includes("media:'print'"),
+    'bundle missing the media="print" scoping (print rules must not affect screen)'
+  );
+});
+
+test('AC-Q8 / AC-Q14 NO new runtime dependency added (Q4 = browser print, zero PDF library)', () => {
+  // Concrete no-new-dep assertion: package.json carries NO runtime
+  // `dependencies` block at all (only build-time devDependencies). A PDF /
+  // download library would have to appear here — its absence proves the
+  // zero-new-runtime-dep hard constraint (Resolved Decision Q4).
+  const pkg = JSON.parse(
+    readFileSync(join(ROOT, 'package.json'), 'utf8')
+  );
+  const runtimeDeps = pkg.dependencies ?? {};
+  assert.deepEqual(
+    runtimeDeps,
+    {},
+    `package.json must declare ZERO runtime dependencies (no PDF / download ` +
+      `library); found: ${Object.keys(runtimeDeps).join(', ')}`
+  );
+  // The devDependency set is the FROZEN pre-Q3 build toolchain — no new
+  // dependency of any kind was introduced for the export affordances.
+  assert.deepEqual(
+    Object.keys(pkg.devDependencies ?? {}).sort(),
+    [
+      '@types/react',
+      '@types/react-dom',
+      '@vitejs/plugin-react',
+      'mermaid',
+      'react',
+      'react-dom',
+      'typescript',
+      'vite',
+      'vite-plugin-singlefile',
+    ],
+    'package.json devDependencies drifted — no new dependency may be added for Q3'
+  );
+});
+
 test('AC-P17 committed plugin/dist/index.html is byte-identical to a fresh rebuild (drift check)', () => {
   // Phase 1 committed-artifact remediation pattern: the committed bundle must
   // equal a deterministic fresh rebuild, so the v2 renderers + history browser
