@@ -170,6 +170,14 @@ test("command instructs one question at a time", () => {
   );
 });
 
+test("command mandates the AskUserQuestion tool for interview questions", () => {
+  const src = readCommand();
+  assert.ok(
+    src.includes("AskUserQuestion"),
+    "Command must mandate the AskUserQuestion tool so the Socratic interview is clickable, not flat plain-prose Q&A (regression guard for the interview-UX fix)"
+  );
+});
+
 test("command instructs adaptive follow-ups", () => {
   const src = readCommand();
   const adaptive =

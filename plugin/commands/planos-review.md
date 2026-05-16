@@ -42,7 +42,7 @@ The diff is concrete, so this interview is **short and targeted** — not the op
 
 ### How to ask each question (AskUserQuestion — load-bearing)
 
-Every scope-grounding question MUST be asked through the `AskUserQuestion` tool — never as free prose in the conversation body. A plain-text question is the single most common reason this interview feels flat: the tool is what gives the user the rich, clickable, one-question-at-a-time experience with suggested answers (the same experience a first-class Socratic interview provides).
+Every interview question MUST be asked through the `AskUserQuestion` tool — never as free prose in the conversation body. A plain-text question is the single most common reason this interview feels flat: the tool is what gives the user the rich, clickable, one-question-at-a-time experience with suggested answers (the same experience a first-class Socratic interview provides).
 
 Rules for each `AskUserQuestion` call:
 
@@ -53,7 +53,7 @@ Rules for each `AskUserQuestion` call:
 5. **Adapt from the answer.** Any follow-up `AskUserQuestion` must target the weakest or most ambiguous dimension the last answer exposed — keep it to the minimum needed to scope the review.
 6. **Early-exit still applies.** If the chosen option or free-text is an interruption signal (see below), stop immediately and follow the graceful-degradation path — do not ask another `AskUserQuestion`.
 
-The interruption fallback path (and the single argument-shape disambiguation question, which may itself be an `AskUserQuestion`) are the only places interview flow deviates. Every other question in this phase — including the opening focus question and the final "does this capture the review scope?" confirmation — goes through `AskUserQuestion`.
+The interruption fallback path is the one place you may proceed WITHOUT an `AskUserQuestion` (you stop asking entirely). The single argument-shape disambiguation question must also go through `AskUserQuestion`. Every other question in this phase — including the opening focus question and the final "does this capture the review scope?" confirmation — goes through `AskUserQuestion`.
 
 ### Graceful interruption / early-exit (AC-R6 — load-bearing)
 
