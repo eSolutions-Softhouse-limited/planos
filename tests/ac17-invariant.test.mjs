@@ -383,6 +383,196 @@ await test('AC-17 STATIC: blocking/artifact/ID transitive set is model-free (rea
 });
 
 // ===========================================================================
+// LAYER 1b (Phase 4 / Milestone Q5 — AC-Q12): the AC-17 NEGATIVE re-assertion.
+//
+// Phase 4 adds polish/distribution surfaces (themes, markdown export SPA+CLI,
+// PDF-via-window.print, marketplace listing) but NO new entry mode and NO new
+// blocking-path engine work. Its headline AC-17 work is a NEGATIVE proof: the
+// markdown-export feature can NEVER run during a blocking round-trip because
+// its modules are ABSENT from the transitive import closure of the blocking
+// roots `bin/planos exit|prd|review`.
+//
+// This is *stronger* than adding `src/export/markdown.mjs` / `src/hook/
+// export.mjs` as audited roots (the way Phase 2 added prd + Phase 3 added
+// review modules to the blocking closure): instead of proving "the export
+// path is also model-free", it proves "no blocking handler can even reach
+// export" — the polish surface is strictly OUTSIDE the audited blocking set.
+// It mirrors EXACTLY how Phase 3 R1 (Option A) proved `gh`/`git` absent from
+// the blocking transitive set (the pre-server-CLI doctrine), now applied to a
+// post-server CLI surface (`bin/planos export`) + a SPA-side serializer.
+//
+// Crucially `ac17Roots()` in tests/harness/import-graph.mjs is UNCHANGED —
+// the export modules are deliberately NOT added as blocking roots (they are
+// not `bin/planos exit|prd|review` roots and are never imported by one). This
+// test asserts that fact directly, two ways:
+//
+//   1. `ac17Roots()` still lists EXACTLY the Phase-1/2/3 blocking + schema +
+//      diff roots — no export/theme root was silently added (a regression that
+//      did so would defeat the negative re-assertion by turning it into a
+//      weaker audited-root inclusion).
+//
+//   2. The negative proof is over the closure of the BLOCKING HANDLER roots
+//      `src/hook/exit.mjs`, `src/hook/prd.mjs`, `src/hook/review.mjs` (+ their
+//      transitive sets — schema/diff/roundtrip/store/ingest, exactly the
+//      ac17Roots() set MINUS the `plugin/bin/planos` dispatcher). The
+//      dispatcher is deliberately EXCLUDED from THIS sub-walk: `plugin/bin/
+//      planos` has a `case 'export'` that reaches `src/hook/export.mjs` via
+//      the SAME provable `resolve(__dirname,'<lit>')` unwrap it uses for
+//      exit/prd/review — that is the dispatcher routing to the legitimately
+//      OUT-OF-BLOCKING-PATH `bin/planos export` subcommand and is expected and
+//      fine. AC-Q12 (plan §4, §6) is precisely "export ABSENT from the closure
+//      of `bin/planos exit|prd|review`" — the blocking HANDLERS, not the
+//      multi-subcommand dispatcher. The crux: no BLOCKING handler can reach
+//      export, even though the shared dispatcher (which also routes the
+//      non-blocking `export` subcommand) trivially can.
+//
+// `node tests/harness/import-graph.mjs` stays VERDICT CLEAN over the full
+// UNCHANGED `ac17Roots()` (proven by the LAYER 1b positive test above — same
+// closure, same roots, dispatcher included).
+// ===========================================================================
+
+await test('AC-17 STATIC (Q5/AC-Q12 NEGATIVE): export + SPA-only modules are ABSENT from the bin/planos exit|prd|review blocking closure', () => {
+  // (a) ac17Roots() is UNCHANGED — no export/theme root was silently added.
+  //     The root set is EXACTLY the dispatcher + Phase-1 (exit) + Phase-2 (prd
+  //     + roundtrip + prd/store) + Phase-3 (review + review/ingest) + schema +
+  //     diff roots. Phase 4 adds ZERO root — that is the whole point of the
+  //     negative proof. Asserting the exact set here makes a regression that
+  //     adds an export root to ac17Roots() FAIL loudly (it would defeat the
+  //     negative re-assertion by turning it into a weaker audited-root
+  //     inclusion).
+  const roots = ac17Roots();
+  const rootNames = roots.map((r) => rel(pResolve(r)));
+  assert.deepEqual(
+    [...rootNames].sort(),
+    [
+      'plugin/bin/planos',
+      'src/diff/reanchor.mjs',
+      'src/diff/structural.mjs',
+      'src/hook/exit.mjs',
+      'src/hook/prd.mjs',
+      'src/hook/review.mjs',
+      'src/hook/roundtrip.mjs',
+      'src/prd/store.mjs',
+      'src/review/ingest.mjs',
+      'src/schema/envelope.mjs',
+      'src/schema/fallback.mjs',
+      'src/schema/id-strategy.mjs',
+      'src/schema/index.mjs',
+      'src/schema/validate.mjs',
+    ],
+    'ac17Roots() must be UNCHANGED — Phase 4 adds NO blocking root (the negative ' +
+      'proof, AC-Q12: export modules are proven OUTSIDE the closure, never added to it)',
+  );
+
+  // The negative proof is over the closure of the BLOCKING HANDLER roots —
+  // ac17Roots() MINUS the `plugin/bin/planos` dispatcher. The dispatcher is a
+  // multi-subcommand router: it reaches `src/hook/export.mjs` via the SAME
+  // provable `resolve(__dirname,'<lit>')` unwrap it uses for exit/prd/review
+  // (the `case 'export'` in plugin/bin/planos), i.e. it routes the
+  // legitimately OUT-OF-BLOCKING-PATH `bin/planos export` subcommand — that is
+  // expected and fine. AC-Q12 (plan §4, §6) asserts export is absent from the
+  // closure of the BLOCKING HANDLERS `exit|prd|review`, NOT from the shared
+  // dispatcher that also routes the non-blocking `export` subcommand. Computed
+  // by filtering ac17Roots() (UNCHANGED) — NOT by changing the harness.
+  const dispatcher = pResolve(roots[0]);
+  assert.equal(
+    rel(dispatcher),
+    'plugin/bin/planos',
+    'sanity: ac17Roots()[0] is the bin/planos dispatcher (excluded from the ' +
+      'blocking-handler sub-walk; the dispatcher legitimately routes the ' +
+      'non-blocking export subcommand too)',
+  );
+  const blockingHandlerRoots = roots.filter(
+    (r) => pResolve(r) !== dispatcher,
+  );
+  const result = walkImportGraph(blockingHandlerRoots);
+  const names = result.modules.map(rel);
+
+  // The blocking-handler closure must STILL contain the real blocking path
+  // (proves this is a genuine reachability walk over the handlers, not a
+  // vacuous empty set) — exit/prd/review handlers + server + schema + diff +
+  // roundtrip + store + ingest, exactly as LAYER 1b's positive set minus the
+  // dispatcher-only `plugin/bin/planos` + `src/hook/enter.mjs` entries.
+  for (const expected of [
+    'src/hook/exit.mjs',
+    'src/hook/prd.mjs',
+    'src/hook/review.mjs',
+    'src/server/index.mjs',
+    'src/schema/index.mjs',
+    'src/diff/structural.mjs',
+    'src/review/ingest.mjs',
+  ]) {
+    assert.ok(
+      names.includes(expected),
+      `the blocking-handler closure must include ${expected} (proves a real ` +
+        `reachability walk over exit|prd|review, not a vacuous set)`,
+    );
+  }
+
+  // (b) The negative proof (AC-Q12): the markdown-export modules are ABSENT
+  //     from the blocking transitive closure — no blocking handler (exit /
+  //     prd / review) can reach them. `src/export/markdown.mjs` is a PURE
+  //     zero-import serializer; `src/hook/export.mjs` is the out-of-blocking-
+  //     path `bin/planos export` CLI (boots NO server, imports NO blocking
+  //     handler). The export feature provably cannot run during a blocking
+  //     round-trip.
+  const exportModulesOutOfClosure = [
+    'src/export/markdown.mjs',
+    'src/hook/export.mjs',
+  ];
+  for (const m of exportModulesOutOfClosure) {
+    assert.ok(
+      !names.includes(m),
+      `AC-Q12 NEGATIVE PROOF VIOLATED: ${m} is REACHABLE from the blocking ` +
+        `bin/planos exit|prd|review closure — the export feature must be ` +
+        `strictly OUT-OF-BLOCKING-PATH (it must never run during a blocking ` +
+        `round-trip). Blocking closure: ${names.join(', ')}`,
+    );
+  }
+
+  // (c) Defensive: the SPA-only surfaces (theme token layer + the SPA export
+  //     affordances) are likewise ABSENT from the blocking closure. They are
+  //     browser-side TSX/TS the build bundles into plugin/dist/index.html and
+  //     are NEVER imported by any Node-side `bin/planos *` path — exactly like
+  //     the bundled offline mermaid renderer (ADR-0002 D3). The walker only
+  //     resolves .mjs/.js/.cjs/.ts (not .tsx) and these are unreachable from
+  //     the blocking roots regardless; asserting it makes the SPA-only
+  //     boundary an enforced invariant, not just a convention.
+  const spaOnlyModules = [
+    'src/editor/theme.ts',
+    'src/editor/export.tsx',
+  ];
+  for (const m of spaOnlyModules) {
+    assert.ok(
+      !names.includes(m),
+      `AC-Q12 NEGATIVE PROOF VIOLATED: ${m} is SPA-only and must be ABSENT ` +
+        `from the blocking bin/planos exit|prd|review closure (it is browser-` +
+        `side, bundled into plugin/dist/index.html, never imported by a Node ` +
+        `blocking path — like the bundled mermaid renderer). Blocking ` +
+        `closure: ${names.join(', ')}`,
+    );
+  }
+
+  // (d) The blocking closure itself is still CLEAN with the UNCHANGED roots —
+  //     the negative proof does not weaken the positive invariant; both hold.
+  assert.equal(
+    result.clean,
+    true,
+    'the UNCHANGED-roots blocking closure stays VERDICT CLEAN (AC-17 ' +
+      're-asserted, never weakened — the negative proof is additive)',
+  );
+
+  console.log('');
+  console.log('        AC-Q12 NEGATIVE PROOF (Phase 4 / Milestone Q5):');
+  console.log('          ac17Roots() UNCHANGED — 14 Phase-1/2/3 blocking roots, ZERO export root');
+  console.log('          ABSENT from blocking closure (proven unreachable):');
+  for (const m of [...exportModulesOutOfClosure, ...spaOnlyModules]) {
+    console.log(`            - ${m}`);
+  }
+  console.log('          VERDICT: CLEAN — AC-17 RE-ASSERTED by negative proof, ac17Roots() UNCHANGED');
+});
+
+// ===========================================================================
 // LAYER 2 — RUNTIME no-egress / no-spawn assertion during `bin/planos exit`.
 //
 // Interceptors are installed at the lowest practical process/socket boundary

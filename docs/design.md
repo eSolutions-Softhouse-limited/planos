@@ -343,7 +343,7 @@ Themes, markdown/PDF export, optional Bun single-binary, optional encrypted loca
 | Node vs Bun | Decided Node for friction; revisit Phase 4. |
 | Name | **Resolved — `planos`.** |
 | Repo location | **Resolved — `esolutions.gr/planos`, git-initialised, branch `main`.** |
-| Coexistence with plannotator installed (hook matcher collision on `ExitPlanMode`) | **Open — investigate Claude Code multi-plugin hook behavior in Phase 1.** |
+| Coexistence with plannotator installed (hook matcher collision on `ExitPlanMode`) | **Resolved (Phase 4, ADR-0004) — refuse-on-collision is the accepted permanent posture (`src/hook/coexistence.mjs` detect-and-refuse, escape hatch `PLANOS_ALLOW_COEXIST=1`). Full graceful coexistence is infeasible without a Claude Code cross-plugin coordination primitive that does not exist (no leader election / shared lock / ordering), and is explicitly out of scope (user-descoped). See `docs/notes/plannotator-coexistence-spike.md` + ADR-0004 Q7.** |
 
 ---
 

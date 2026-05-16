@@ -1,9 +1,28 @@
 # Spike: plannotator coexistence — Claude Code multi-plugin `ExitPlanMode` dispatch
 
 - Story: US-006 / AC-21 (plan `.omc/plans/planos-phase1-consensus.md` Step 0.6)
-- Status: **RESOLVED for Phase 1** (descoped to refuse-on-collision per explicit user decision)
+- Status: **RESOLVED — final (Phase 4): refuse-on-collision is the permanent posture** (formally closed in ADR-0004 Q7; design.md §10 row closed)
 - Date: 2026-05-16
 - Feeds: Step 2-thin.2 and Step 2f.3 stdout-decision-ownership design
+
+## Phase 4 final closure (ADR-0004 Q7)
+
+Phase 4 (the final phase) formally CLOSES this item. **No code change** was
+made to `src/hook/coexistence.mjs` or `tests/coexistence.test.mjs` — the
+Phase-1 detect-and-refuse posture (escape hatch `PLANOS_ALLOW_COEXIST=1`,
+7 tests) is the **accepted permanent posture**, not a stopgap. "Full
+coexistence resolution" (two plugins each owning a blocking 96h `ExitPlanMode`
+round-trip cooperating instead of double-booting) would require a Claude Code
+**cross-plugin coordination primitive that does not exist** — no leader
+election, no shared lock channel, no defined hook ordering; the only
+alternative is a fragile, security-adjacent lockfile race between two
+independently-spawned hook processes with no ordering guarantee. It is
+arguably infeasible without a CC primitive and the user has explicitly stated
+they do not want it (project memory: *"don't care about plannotator
+coexistence; refuse-on-collision is fine"*). The dispatch findings below are
+unchanged and remain the authoritative documented semantics; design.md §10's
+"Open — investigate in Phase 1" row is updated to the closed disposition. See
+`docs/adr/0004-phase4-polish-distribution.md` §Q7.
 
 ## Question (AC-21)
 
