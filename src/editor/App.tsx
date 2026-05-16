@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { BlockRenderer } from './blocks';
+import { HistoryBrowser } from './history';
 import {
   type EnvelopeTransport,
   emitEnvelope,
@@ -52,6 +53,14 @@ export default function App({
       alive = false;
     };
   }, []);
+
+  const byId = useMemo(
+    () =>
+      doc
+        ? Object.fromEntries(doc.blocks.map((b) => [b.id, b]))
+        : {},
+    [doc]
+  );
 
   const state: EditorState = useMemo(
     () => ({
@@ -154,6 +163,7 @@ export default function App({
             <BlockRenderer
               key={block.id}
               block={block}
+              byId={byId}
               comment={comments[block.id] ?? ''}
               taskPatch={edits[block.id] ?? {}}
               answer={answers[block.id] ?? ''}
@@ -169,6 +179,8 @@ export default function App({
             />
           ))}
         </div>
+
+        <HistoryBrowser />
 
         <div
           style={{

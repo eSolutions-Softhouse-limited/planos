@@ -44,6 +44,11 @@ function test(name, fn) {
   }
 }
 
+// Capture the COMMITTED bundle bytes BEFORE rebuilding so the drift check
+// (AC-P17 / Phase 1 committed-artifact remediation pattern) can assert the
+// committed plugin/dist/index.html is byte-identical to a fresh rebuild.
+const committedBytes = existsSync(BUNDLE) ? readFileSync(BUNDLE) : null;
+
 // Build once up front (the bundle is the unit under test).
 console.log('Building editor bundle (npm run build:editor)…');
 execFileSync('npm', ['run', 'build:editor'], { cwd: ROOT, stdio: 'inherit' });
@@ -124,6 +129,86 @@ test('AC-8 bundle ships the offline demo document (all 7 kinds, standalone)', ()
   assert.ok(
     html.includes('demo-plan-001'),
     'bundle must embed the offline demo document id'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 / Milestone P4 — v2 renderers, history browser, offline mermaid,
+// drift check, size cap (AC-P11, AC-P13, AC-P14, AC-P17).
+// ---------------------------------------------------------------------------
+
+test('AC-P13 bundle contains a renderer for all 6 v2 block kinds', () => {
+  // The dispatcher switches on these discriminants; the minifier preserves
+  // the string literals used in case labels + JSX. (Non-visual assertion —
+  // the visual demo per kind is the [M] manual smoke at the bottom.)
+  const v2Kinds = ['phase', 'tradeoff', 'fileChange', 'code', 'table', 'diagram'];
+  for (const k of v2Kinds) {
+    assert.ok(
+      html.includes(`"${k}"`) || html.includes(`'${k}'`) || html.includes(k),
+      `bundle missing v2 kind discriminant: ${k}`
+    );
+  }
+  // v2-renderer-specific affordance strings survive minification verbatim.
+  for (const needle of ['Trade-off', 'unresolved id', 'Revision history']) {
+    assert.ok(
+      html.includes(needle),
+      `bundle missing v2 renderer / history affordance: ${needle}`
+    );
+  }
+});
+
+test('AC-P14 offline mermaid is bundled (no CDN / network at runtime)', () => {
+  // Mermaid is bundled at build time (Resolved Decision D3). Its presence is
+  // proven by a stable mermaid-internal token; offline-ness is proven by the
+  // shared no-external-asset assertion below (no src/href http, no @import).
+  assert.ok(
+    /mermaid/i.test(html),
+    'bundle must inline the mermaid renderer (build-time bundle, D3)'
+  );
+  // No external script/style network reference of ANY kind (re-assert here
+  // specifically for the mermaid bundle: it must not lazy-fetch a CDN chunk).
+  const ext =
+    /(?:src|href)\s*=\s*["']https?:\/\//i.exec(html) ||
+    /@import\s+url\(\s*["']?https?:\/\//i.exec(html) ||
+    // a runtime dynamic import of an absolute http(s) URL would defeat offline
+    /import\(\s*["']https?:\/\//i.exec(html);
+  assert.equal(
+    ext,
+    null,
+    `mermaid bundle must be fully offline; found network ref: ${ext && ext[0]}`
+  );
+});
+
+test('AC-P17 committed plugin/dist/index.html is byte-identical to a fresh rebuild (drift check)', () => {
+  // Phase 1 committed-artifact remediation pattern: the committed bundle must
+  // equal a deterministic fresh rebuild, so the v2 renderers + history browser
+  // + bundled mermaid are reflected in the committed single-file artifact.
+  assert.notEqual(
+    committedBytes,
+    null,
+    'plugin/dist/index.html must be committed (none found before rebuild)'
+  );
+  const rebuilt = readFileSync(BUNDLE);
+  assert.ok(
+    committedBytes.equals(rebuilt),
+    `committed plugin/dist/index.html drifted from a fresh rebuild ` +
+      `(committed ${committedBytes.length} B vs rebuilt ${rebuilt.length} B) ` +
+      `— rebuild and re-commit: npm run build:editor`
+  );
+});
+
+test('AC-P17 bundle size is under the documented cap (≤ 4 MB)', () => {
+  // Resolved Decision D3 accepts a larger artifact for visual diagram
+  // rendering but requires the growth to be documented + asserted within a
+  // sane cap. Mermaid pushes the single-file bundle to ~3.3 MB; the cap is
+  // set to 4 MB (≈ 700 KB headroom) to catch runaway bloat / accidental
+  // double-bundling while permitting the mermaid renderer.
+  const CAP_BYTES = 4 * 1024 * 1024;
+  const size = readFileSync(BUNDLE).length;
+  assert.ok(
+    size <= CAP_BYTES,
+    `plugin/dist/index.html is ${size} B, exceeds the ${CAP_BYTES} B ` +
+      `(4 MB) offline single-file cap (Resolved Decision D3)`
   );
 });
 

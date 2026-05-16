@@ -9,16 +9,23 @@
  */
 import { useState, type ReactNode } from 'react';
 import { Markdown } from './markdown';
+import { MermaidDiagram } from './mermaid';
 import {
   type Block,
+  type CodeBlock,
   type DecisionBlock,
+  type DiagramBlock,
+  type FileChangeBlock,
   type ObjectiveBlock,
   type OpenQuestionBlock,
+  type PhaseBlock,
   type ProseBlock,
   type RiskBlock,
   type SectionBlock,
+  type TableBlock,
   type TaskBlock,
   type TaskStatus,
+  type TradeoffBlock,
 } from './types';
 
 const TASK_STATUSES: TaskStatus[] = ['todo', 'doing', 'done', 'cut'];
@@ -495,6 +502,327 @@ function OpenQuestionView({ block, answer, onAnswer }: OpenQuestionViewProps) {
 }
 
 // ---------------------------------------------------------------------------
+// v2 (PRD-scoped) renderers — design.md §4 / plan §3 "SPA renderer" column.
+// Each is read-only; the comment affordance is supplied by BlockShell (so
+// every v2 block is commentable, AC-P13). Zero new deps (zero-dep constraint):
+// `code` uses a plain <pre> with no syntax-highlight library; `diagram` uses
+// the build-time-bundled offline mermaid renderer (Resolved Decision D3).
+// ---------------------------------------------------------------------------
+
+/**
+ * `phase`: title + ordered list of the referenced task titles, resolved via
+ * the document `byId` map. Unresolved ids (agent-authored, not validator-
+ * enforced per D5(iii)) are shown verbatim so nothing is silently dropped.
+ */
+function PhaseView({
+  block,
+  byId,
+}: {
+  block: PhaseBlock;
+  byId: Record<string, Block>;
+}) {
+  return (
+    <div>
+      <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+        🧭 {block.title}
+      </div>
+      {block.taskIds.length === 0 ? (
+        <div style={{ fontSize: 12, color: '#94a3b8' }}>(no tasks)</div>
+      ) : (
+        <ol
+          style={{
+            margin: 0,
+            paddingLeft: 20,
+            fontSize: 13,
+            color: '#334155',
+          }}
+        >
+          {block.taskIds.map((tid, i) => {
+            const ref = byId[tid];
+            const label =
+              ref && 'title' in ref && typeof ref.title === 'string'
+                ? ref.title
+                : tid;
+            const resolved = Boolean(ref);
+            return (
+              <li key={i} style={{ margin: '2px 0' }}>
+                {label}
+                {!resolved && (
+                  <span style={{ color: '#b45309', marginLeft: 6 }}>
+                    (unresolved id)
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/** `tradeoff`: axis + option cards, each with a proportional score bar. */
+function TradeoffView({ block }: { block: TradeoffBlock }) {
+  const scores = block.options
+    .map((o) => o.score)
+    .filter((s): s is number => typeof s === 'number');
+  const maxScore = scores.length > 0 ? Math.max(...scores, 1) : 1;
+  return (
+    <div>
+      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 8 }}>
+        ⚖ Trade-off: <span style={{ color: '#475569' }}>{block.axis}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {block.options.map((opt, i) => {
+          const hasScore = typeof opt.score === 'number';
+          const pct = hasScore
+            ? Math.max(0, Math.min(100, ((opt.score as number) / maxScore) * 100))
+            : 0;
+          return (
+            <div
+              key={i}
+              style={{
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                borderRadius: 6,
+                padding: '8px 10px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#0f172a',
+                }}
+              >
+                <span>{opt.label}</span>
+                {hasScore && (
+                  <span style={{ fontSize: 12, color: '#64748b' }}>
+                    {opt.score}
+                  </span>
+                )}
+              </div>
+              {hasScore && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    height: 6,
+                    background: '#e2e8f0',
+                    borderRadius: 99,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      background: '#2563eb',
+                    }}
+                  />
+                </div>
+              )}
+              {opt.note && (
+                <div
+                  style={{ fontSize: 12, color: '#475569', marginTop: 6 }}
+                >
+                  {opt.note}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const FILE_ACTION_COLORS: Record<
+  FileChangeBlock['action'],
+  { bg: string; fg: string }
+> = {
+  add: { bg: '#dcfce7', fg: '#15803d' },
+  modify: { bg: '#dbeafe', fg: '#1e40af' },
+  delete: { bg: '#fee2e2', fg: '#b91c1c' },
+};
+
+/** `fileChange`: action badge + monospace path + rationale. */
+function FileChangeView({ block }: { block: FileChangeBlock }) {
+  const c = FILE_ACTION_COLORS[block.action] ?? {
+    bg: '#e5e7eb',
+    fg: '#374151',
+  };
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            padding: '2px 8px',
+            borderRadius: 4,
+            background: c.bg,
+            color: c.fg,
+          }}
+        >
+          {block.action}
+        </span>
+        <code
+          style={{
+            fontFamily:
+              'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontSize: 13,
+            color: '#0f172a',
+          }}
+        >
+          {block.path}
+        </code>
+      </div>
+      <p style={{ fontSize: 13, color: '#475569', margin: '8px 0 0' }}>
+        {block.rationale}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * `code`: a plain <pre> with an optional filename header + a language label.
+ * NO syntax-highlight dependency (zero-dep constraint, plan §3).
+ */
+function CodeView({ block }: { block: CodeBlock }) {
+  return (
+    <div
+      style={{
+        border: '1px solid #e2e8f0',
+        borderRadius: 6,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '6px 10px',
+          background: '#f1f5f9',
+          borderBottom: '1px solid #e2e8f0',
+          fontSize: 12,
+        }}
+      >
+        <span
+          style={{
+            fontFamily:
+              'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            color: '#475569',
+          }}
+        >
+          {block.filename ?? '(inline)'}
+        </span>
+        <span
+          style={{
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            color: '#64748b',
+          }}
+        >
+          {block.lang || 'text'}
+        </span>
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          padding: '10px 12px',
+          background: '#0f172a',
+          color: '#e2e8f0',
+          fontSize: 12.5,
+          lineHeight: 1.5,
+          overflowX: 'auto',
+          whiteSpace: 'pre',
+          fontFamily:
+            'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        }}
+      >
+        {block.content}
+      </pre>
+    </div>
+  );
+}
+
+/** `table`: a plain HTML table (columns header + string-cell rows). */
+function TableView({ block }: { block: TableBlock }) {
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table
+        style={{
+          borderCollapse: 'collapse',
+          width: '100%',
+          fontSize: 13,
+        }}
+      >
+        <thead>
+          <tr>
+            {block.columns.map((col, i) => (
+              <th
+                key={i}
+                style={{
+                  textAlign: 'left',
+                  padding: '6px 10px',
+                  borderBottom: '2px solid #cbd5e1',
+                  color: '#334155',
+                  fontWeight: 700,
+                }}
+              >
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {block.rows.map((row, ri) => (
+            <tr key={ri}>
+              {row.map((cell, ci) => (
+                <td
+                  key={ci}
+                  style={{
+                    padding: '6px 10px',
+                    borderBottom: '1px solid #e2e8f0',
+                    color: '#475569',
+                    verticalAlign: 'top',
+                  }}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * `diagram`: render the mermaid source visually via the build-time-bundled
+ * offline renderer (Resolved Decision D3). A parse failure degrades to the
+ * raw source in a <pre> and never crashes the SPA (see MermaidDiagram).
+ */
+function DiagramView({ block }: { block: DiagramBlock }) {
+  return <MermaidDiagram source={block.mermaid} />;
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher.
 // ---------------------------------------------------------------------------
 
@@ -506,6 +834,12 @@ export interface BlockRendererProps {
   onComment: (text: string) => void;
   onTaskPatch: (p: Partial<TaskBlock>) => void;
   onAnswer: (text: string) => void;
+  /**
+   * All blocks in the document keyed by id — used by `phase` to resolve its
+   * `taskIds` to task titles. Optional so existing call sites keep working;
+   * unresolved ids fall back to showing the raw id.
+   */
+  byId?: Record<string, Block>;
 }
 
 export function BlockRenderer({
@@ -516,6 +850,7 @@ export function BlockRenderer({
   onComment,
   onTaskPatch,
   onAnswer,
+  byId = {},
 }: BlockRendererProps) {
   let body: ReactNode;
   switch (block.kind) {
@@ -544,13 +879,34 @@ export function BlockRenderer({
         <OpenQuestionView block={block} answer={answer} onAnswer={onAnswer} />
       );
       break;
+    // v2 (PRD-scoped) kinds — Milestone P4. Each has a real kind-appropriate
+    // renderer; the comment affordance still flows through BlockShell below.
+    case 'phase':
+      body = <PhaseView block={block} byId={byId} />;
+      break;
+    case 'tradeoff':
+      body = <TradeoffView block={block} />;
+      break;
+    case 'fileChange':
+      body = <FileChangeView block={block} />;
+      break;
+    case 'code':
+      body = <CodeView block={block} />;
+      break;
+    case 'table':
+      body = <TableView block={block} />;
+      break;
+    case 'diagram':
+      body = <DiagramView block={block} />;
+      break;
     default: {
-      // v1 kinds are all handled above. v2 kinds (phase/tradeoff/fileChange/
-      // code/table/diagram) are part of the type union from Milestone P0 but
-      // their kind-specific *View renderers land in Milestone P4 — until then
-      // they fall back to a raw structural view (no crash, comment affordance
-      // still works via BlockShell). NOT a real renderer; P4 owns that.
-      body = <pre>{JSON.stringify(block, null, 2)}</pre>;
+      // Exhaustiveness guard: every one of the 13 Block kinds (7 v1 + 6 v2)
+      // is handled above, so `block` is `never` here. If a new kind is added
+      // to the `Block` union without a case, this assignment fails to compile
+      // — a build-time completeness gate (plan §3 schema engine extension
+      // points). The runtime arm only renders if the type system is bypassed.
+      const _never: never = block;
+      body = <pre>{JSON.stringify(_never, null, 2)}</pre>;
     }
   }
 
