@@ -42,8 +42,8 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos\ngit status --porcelain -- tests/ docs/ .omc/plans/progress.txt\ngit add tests/ac17-invariant.test.mjs docs/notes/markdown-export-boundary.md docs/adr/0004-phase4-polish-distribution.md docs/design.md docs/notes/plannotator-coexistence-spike.md .omc/plans/progress.txt\ngit commit --quiet -m \"Phase 4 Q5: AC-17 negative re-assertion + exit gate + ADR-0004 + §10 closure (CLOSEOUT)\n\n- ac17-invariant.test.mjs: NEW LAYER 1b NEGATIVE assertion (Q5/AC-Q12) —\n  ac17Roots() deepEqual the 14 Phase-1/2/3 roots (silent export/theme root\n  fails loudly); src/export/markdown.mjs + src/hook/export.mjs ABSENT from\n  the exit|prd|review blocking-HANDLER closure (the dispatcher legitimately\n  routes the out-of-blocking-path export subcommand — proof is over the\n  handlers, not the shared switch, per plan §4/§6); defensive SPA-only\n  theme.ts/export.tsx absent; closure non-vacuous + clean===true. 13/0.\n- docs/notes/markdown-export-boundary.md (NEW): out-of-blocking-path note\n  (negative proof stronger than audited-root inclusion; R1-doctrine on a\n  post-server CLI surface).\n- docs/adr/0004-phase4-polish-distribution.md (NEW, ACCEPTED): Q1–Q8 +\n  AC-Q-WAIVER + Consequences; mirrors ADR-0003.\n- design.md §10 plannotator row formally CLOSED (Resolved, Phase 4,\n  ADR-0004); plannotator-coexistence-spike.md status → RESOLVED — final\n  (Phase 4). NO change to src/hook/coexistence.mjs / coexistence.test.mjs\n  (Q7=keep-refuse — verified UNCHANGED).\n\nPhase 4 exit gate (AC-Q12/Q13/Q15/AC-Q-WAIVER; all active AC-Q green).\nIndependent verify: suite ×2 49/49/0; tsc=0; import-graph VERDICT CLEAN\n(ac17Roots UNCHANGED — negative proof, no new blocking root/carve-out);\nPhase-1 FROZEN gate 0; prd-smoke + review-smoke PASS; ac17-invariant 13/0;\ncoexistence/FROZEN_BARS UNCHANGED; src/+plugin/ untouched. Phases 1+2+3 NOT\nregressed.\n\nPHASE 4 COMPLETE — planos v1.0.0, all 4 phases done, design.md §3 COMPLETE.\"\ngit log --oneline -8",
-    "testCommand": null,
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos\ngit add src/hook/roundtrip.mjs plugin/bin/planos tests/extract-plan-contract.test.mjs\ngit -c core.pager=cat diff --cached --stat\ngit commit --quiet -m \"fix(roundtrip): extractPlan accepts a bare authored Document (skill-contract)\n\nThe /planos-prd, /planos-plan, /planos-review skills document piping the\nBARE authored document JSON to bin/planos (e.g. planos-prd.md:348\n\\`echo '<json>' | node bin/planos prd\\`). But extractPlan only read\ntool_input.plan from the ExitPlanMode hook envelope, so a bare doc\nreturned '' → degradeToProse silently discarded the authored content.\nThis is the likely root of the original 'when the plan was done it\nfailed with an error' (the authored PRD came back empty/degraded).\nTests passed only because they feed the wrapped {tool_input:{plan}}.\n\nFix: if stdin parses to a planos Document (schemaVersion+type+blocks)\nand has no tool_input.plan, treat the raw text AS the plan. Pure shape\ncheck — no network/model/import (AC-17-safe; import-graph VERDICT\nCLEAN). tool_input.plan still takes precedence; non-document JSON still\nreturns '' (degrade path intact); non-JSON still returned verbatim.\n\n- tests/extract-plan-contract.test.mjs: NEW 6-case regression\n  (bare doc used / plan-type / wrapped envelope / precedence /\n  non-doc still '' / non-JSON verbatim).\n- plugin/bin/planos rebuilt (npm run build:bin) so the bundled CLI\n  carries the fix; bin-bundle drift gate green.\n\ne2e verified: bare JSON | bundled bin/planos export now preserves the\nauthored title. Full suite 35/35; tsc clean; AC-17 CLEAN.\"\ngit -c core.pager=cat log --oneline -7",
+    "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
     "lintCommand": null,
     "devCommand": null,
     "scripts": {
@@ -136,14 +136,14 @@
   "hotPaths": [
     {
       "path": "src/schema/validate.mjs",
-      "accessCount": 23,
-      "lastAccessed": 1778932438047,
+      "accessCount": 34,
+      "lastAccessed": 1778969550307,
       "type": "file"
     },
     {
       "path": "src/hook/exit.mjs",
-      "accessCount": 11,
-      "lastAccessed": 1778932804666,
+      "accessCount": 22,
+      "lastAccessed": 1778970743144,
       "type": "file"
     },
     {
@@ -159,15 +159,15 @@
       "type": "file"
     },
     {
-      "path": "src/schema/id-strategy.mjs",
-      "accessCount": 5,
-      "lastAccessed": 1778926524400,
+      "path": "src/hook/enter.mjs",
+      "accessCount": 6,
+      "lastAccessed": 1778971192197,
       "type": "file"
     },
     {
-      "path": "src/hook/enter.mjs",
+      "path": "src/schema/id-strategy.mjs",
       "accessCount": 5,
-      "lastAccessed": 1778926558068,
+      "lastAccessed": 1778926524400,
       "type": "file"
     },
     {
@@ -180,6 +180,12 @@
       "path": "src/schema/index.mjs",
       "accessCount": 4,
       "lastAccessed": 1778926523120,
+      "type": "file"
+    },
+    {
+      "path": "src/server/index.mjs",
+      "accessCount": 4,
+      "lastAccessed": 1778970744117,
       "type": "file"
     },
     {
@@ -204,12 +210,6 @@
       "path": "tests/spike/plugin-b/bin/stub",
       "accessCount": 2,
       "lastAccessed": 1778924360235,
-      "type": "file"
-    },
-    {
-      "path": "src/server/index.mjs",
-      "accessCount": 2,
-      "lastAccessed": 1778927433134,
       "type": "file"
     },
     {

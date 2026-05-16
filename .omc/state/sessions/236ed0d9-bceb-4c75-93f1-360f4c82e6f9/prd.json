@@ -1,0 +1,27 @@
+{
+  "title": "planos-prd field-test failures — fix all",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Socratic interview must use AskUserQuestion (not flat prose) across all 3 planos command skills",
+      "passes": true,
+      "acceptanceCriteria": [
+        "planos-plan.md, planos-prd.md, planos-review.md each mandate AskUserQuestion for every interview question (opening, follow-ups, final confirmation) — VERIFIED",
+        "Self-containment held: zero matches for /deep-interview, /grill-me, /oh-my-claudecode:, /omc: in plugin/commands/*.md — VERIFIED",
+        "All test-asserted phrases preserved; 32/32 test files pass, 0 failures — VERIFIED",
+        "Regression guard added: each command test asserts src.includes('AskUserQuestion') — VERIFIED PASS x3",
+        "Independent code-reviewer pass: APPROVED, 0 critical/high — VERIFIED"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Browser showed raw minified JS / 'plan failed with error' (Problems 2 & 3)",
+      "passes": true,
+      "acceptanceCriteria": [
+        "Root cause: inline doc spliced inside the JS module bundle, corrupting single-file HTML — already fixed at HEAD by commit 49d18f8 + tests/spa-inline-injection.test.mjs",
+        "Independent production-path smoke (real buildSpaHtml): HTML well-formed, window.__PLANOS_DOC__ injected before real </head> and outside the bundle, </script> breakout neutralized, doc round-trips — VERIFIED",
+        "Session 0296a938 analysis confirmed Problem 2 == Problem 3 (same root cause), not a separate error"
+      ]
+    }
+  ]
+}
