@@ -13,7 +13,7 @@ const subcommand = process.argv[2];
 
 // Route
 if (!subcommand) {
-  process.stderr.write('Usage: planos <subcommand>\nSubcommands: enter, exit\n');
+  process.stderr.write('Usage: planos <subcommand>\nSubcommands: enter, exit, prd\n');
   process.exit(1);
 }
 
@@ -31,6 +31,14 @@ switch (subcommand) {
       resolve(__dirname, '../../src/hook/exit.mjs')
     );
     await handleExit();
+    break;
+  }
+
+  case 'prd': {
+    const { handlePrd } = await import(
+      resolve(__dirname, '../../src/hook/prd.mjs')
+    );
+    await handlePrd();
     break;
   }
 
