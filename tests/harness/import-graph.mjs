@@ -559,8 +559,24 @@ export function walkImportGraph(roots) {
  * to this harness file so callers need not know the layout.
  *
  * `bin/planos` is included as the true entrypoint: its dispatcher dynamically
- * imports `enter.mjs`/`exit.mjs` via the documented `resolve(__dirname,'<lit>')`
- * unwrap, so the walk follows those edges as a real graph walk (not a grep).
+ * imports `enter.mjs`/`exit.mjs`/`prd.mjs` via the documented
+ * `resolve(__dirname,'<lit>')` unwrap, so the walk follows those edges as a
+ * real graph walk (not a grep).
+ *
+ * Phase 2 / Milestone P5 (AC-P15): the `bin/planos prd` blocking entrypoint and
+ * its transitive set are added EXPLICITLY here — `src/hook/prd.mjs`,
+ * `src/hook/roundtrip.mjs`, `src/prd/store.mjs`. The `bin/planos` dispatcher
+ * already reaches `prd.mjs` via the SAME provable `resolve(__dirname,'<lit>')`
+ * pattern it uses for `exit.mjs` (the `prd` case in plugin/bin/planos), so the
+ * real graph walk already follows that edge; listing the prd roots explicitly
+ * (mirroring how `src/hook/exit.mjs` is listed alongside `bin/planos`) makes the
+ * AC-17 re-assertion independent of the dispatcher edge and pins the prd
+ * transitive closure into the audited set directly. `src/prd/store.mjs`'s
+ * `node:fs` writes are explicitly in-scope-allowed — filesystem ≠
+ * network/model, the SAME boundary as the documented browser-opener note in
+ * `src/hook/exit.mjs` (node:child_process is the allowed AC-17 boundary, not a
+ * forbidden specifier; node:fs likewise is allowed and never traversed as a
+ * forbidden module). The walk MUST remain VERDICT CLEAN with these added.
  *
  * @returns {string[]} absolute root module paths
  */
@@ -570,6 +586,13 @@ export function ac17Roots() {
   return [
     resolve(repo, 'plugin/bin/planos'),
     resolve(repo, 'src/hook/exit.mjs'),
+    // Phase 2 (AC-P15) — the bin/planos prd blocking entrypoint + transitive
+    // set. bin/planos already dynamically imports prd.mjs via the provable
+    // resolve(__dirname,'<lit>') unwrap (same as exit.mjs); these explicit
+    // roots make the AC-17 re-assertion dispatcher-independent.
+    resolve(repo, 'src/hook/prd.mjs'),
+    resolve(repo, 'src/hook/roundtrip.mjs'),
+    resolve(repo, 'src/prd/store.mjs'),
     resolve(repo, 'src/schema/index.mjs'),
     resolve(repo, 'src/schema/validate.mjs'),
     resolve(repo, 'src/schema/fallback.mjs'),

@@ -80,3 +80,61 @@
 - US-026 (AC-20): static — marketplace/plugin/hooks.json valid (96h timeout), 213KB offline single-file SPA (no external src), bin enter/exit dispatch OK. live — plugin loads cleanly in real `claude --plugin-dir ./plugin` (result READY, is_error=false). + one full author→forced-revise→revise→APPROVE→allow cycle through the real plugin modules (see below).
 - Regression after all wiring: full offline suite 28/28 pass, 0 fail; npx tsc --noEmit exit 0; AC-17 import-graph VERDICT CLEAN. New: tests/harness/live-driver.mjs, run-live.mjs, verify-exit-gate.mjs, tests/live-driver.test.mjs; result-shape scaffold-stub test superseded to wired contract; 31 new fixtures + example.fixture.json createdAt fix (32 total).
 - OUTCOME: Phase 1 make-or-break risk (design.md §6) FALSIFIED-CLEAR. All 26 stories pass. Phase 1 exit gate PASS. No escalation/failure branch taken.
+
+# planos Phase 2 — PRD Mode + v2 Vocab + Persisted Revision History — COMPLETE
+
+## Phase 2 — 2026-05-16 (plan: .omc/plans/planos-phase2-plan.md; design.md §9)
+- Scope delivered: /planos-prd command (command → blocking CLI, NOT ExitPlanMode), full v2 block vocab (phase, tradeoff, fileChange, code, table, diagram), append-only persisted multi-revision history (prds/<doc-id>/rNNN.json + latest.json, committed), multi-revision SPA history browser, AC-17 RE-ASSERTED for the new bin/planos prd entrypoint.
+- Reused VERBATIM from Phase 1 (zero behaviour change): readStdin/extractPlan (extracted to src/hook/roundtrip.mjs), planToDocument/buildDecision/buildReviseMessage/renderEchoTable/toPermissionRequestOutput/startServer, structural diff + reanchor engines, FeedbackEnvelope + baseRevision race guard, opaque ID scheme + §6 mechanisms. exit-*.test.mjs are the regression guard and stay green.
+
+### Milestones P0–P5 (dependency order, all gates met)
+- P0 v2 schema engine (HARD GATE) ✅ — validate.mjs V2_KINDS + 6 KIND_VALIDATORS + type:"prd" gating (D5-i reject v2 in plan docs, D5-ii table row/col HARD error); types.d.ts/editor types; structural.mjs TEXT_FIELDS + reanchor v2 map. Gate: AC-P1/P2/P3/P4.
+- P1 PRD persistence layer ✅ — src/prd/store.mjs (D1 Option A: rNNN.json + latest.json, committed, append-only, path-traversal-safe, canonical JSON, node:fs-only, no clock). Gate: AC-P9, AC-P10(diff half).
+- P2 PRD round-trip handler ✅ — src/hook/prd.mjs handlePrd() boots server DIRECTLY (no ExitPlanMode); buildPrdApiHandlers full chain; prd case added to plugin/bin/planos switch (same resolve(__dirname,'<lit>') pattern as exit). Gate: AC-P7/P8/P10(rt half)/P12.
+- P3 /planos-prd command ✅ — plugin/commands/planos-prd.md (two-phase Socratic → v2 author → stdin pipe to bin/planos prd, D4); docs/notes/planos-prd-command.md AC-17 boundary note. Gate: AC-P5/P6 ([M] scripted-smoke documented).
+- P4 SPA v2 renderers + history browser ✅ — 6 *View components + dispatcher (exhaustiveness guard); src/editor/history.tsx + App.tsx wiring (D2 minimal: list + pick-view + pick-diff-base, reuses structural.mjs); D3 mermaid bundled at SPA build (offline, SPA-side ONLY, NOT in blocking path); plugin/dist/index.html rebuilt + drift-checked. Gate: AC-P11/P13/P14/P17.
+- P5 AC-17 re-assertion + Phase 2 exit gate ✅ (THIS milestone) — see below.
+
+### Milestone P5 deliverables (this iteration)
+- tests/harness/import-graph.mjs: ac17Roots() now lists src/hook/prd.mjs + src/hook/roundtrip.mjs + src/prd/store.mjs EXPLICITLY. bin/planos already reaches prd.mjs via the SAME provable resolve(__dirname,'<lit>') unwrap it uses for exit.mjs (the prd case), so the real graph walk already followed that edge; the explicit roots make the AC-17 re-assertion dispatcher-independent. node:fs writes in store.mjs are in-scope-allowed (fs ≠ network/model — same boundary as the exit.mjs browser-opener note). Walk stays VERDICT CLEAN.
+- tests/ac17-invariant.test.mjs: extended — (1) static module-set assertion now also requires src/hook/prd.mjs + src/hook/roundtrip.mjs + src/prd/store.mjs in the transitive closure; (2) NEW LAYER 2b runtime test mirrors LAYER 2 exactly but drives handlePrd (scripted seam, tmpdir root) under the same lowest-boundary interceptors (node:net connect / node:dns / node:child_process / fetch / http(s).request) — asserts ZERO non-loopback egress, ZERO agent/process spawn, ZERO agent-SDK, and that store.mjs persisted r001 via node:fs. All existing exit-path assertions intact. 11 passed, 0 failed.
+- docs/adr/0002-prd-persistence.md: records D1 (Option A committed, append-only, canonical, path-safe; rationale + consequences), D3 (bundle mermaid, offline, SPA-only, AC-17 stays CLEAN), D5 (i reject v2 in plan / ii table row-col HARD / iii phase.taskIds agent-authored), D6 (lighter-but-rigorous gate, no new frozen bar, no ID re-measurement), and the full AC-P18 reasoned waiver (opaque chosen FOR Phase-2 title churn per ADR-0001 #2; §6 falsifier passed 1.000; no new ID surface; round-trip already proven live; semantic-slug's untested risk moot unless reconsidered). Mirrors ADR-0000/0001 structure.
+- tests/harness/prd-smoke.mjs: NEW concrete deterministic persistence proof (D6 cheap gate, NOT a frozen gate, spends NO claude). Drives the REAL bin/planos prd round-trip TWICE for one doc id via the scripted seam against a tmpdir → asserts r001 then r002 persisted, monotonic meta.revision, shared id, append-only immutability, and a correct diffDocuments r001→r002 (p-context=modified, ph-build=modified, t-test=added, s-overview/t-impl=unchanged). Exits 0.
+
+### 18 AC-P → test / doc mapping (plan §6)
+- AC-P1  [H] validator accepts/rejects every v2 kind → tests/v2-schema.test.mjs (31/0)
+- AC-P2  [H] v2 kinds rejected in type:"plan", accepted in type:"prd" (D5-i) → tests/v2-schema.test.mjs
+- AC-P3  [H] degradeToProse → 1 prose block + meta.degraded for malformed PRD → tests/v2-schema.test.mjs + tests/prd-roundtrip.test.mjs (degraded-PRD case)
+- AC-P4  [H] structural diff classifies v2 blocks (text→word-diff, non-text→structural, reorder→moved) → tests/diff.test.mjs (17/0) + tests/reanchor.test.mjs (13/0)
+- AC-P5  [M] /planos-prd Socratic interview → v2 author → boots server (topic + empty arg) → docs/notes/planos-prd-command.md Scenario A/B; tests/planos-prd-command.test.mjs (52/0) static invariants
+- AC-P6  [M] graceful interruption → minimal valid v2 PRD, no crash/loop → docs/notes/planos-prd-command.md Scenario C; tests/planos-prd-interrupt.test.mjs (19/0)
+- AC-P7  [H] bin/planos prd round-trip (approve persists+success / revise buildReviseMessage / flush-then-exit-0) → tests/prd-roundtrip.test.mjs (8/0)
+- AC-P8  [H] baseRevision race guard fires on PRD round-trip → tests/prd-roundtrip.test.mjs
+- AC-P9  [H] saveRevision layout + load/list round-trip + append-only + path-traversal → tests/prd-store.test.mjs (20/0)
+- AC-P10 [H] two approves → r001+r002 monotonic, shared id, correct diffDocuments → tests/prd-roundtrip.test.mjs + tests/harness/prd-smoke.mjs (concrete real-binary proof, exit 0)
+- AC-P11 [M] multi-revision history browser (list + pick-view + pick-diff-base, D2 minimal) → tests/editor-render.test.mjs (9/0) non-visual; src/editor/history.tsx
+- AC-P12 [H] /api/prd/versions full chain + /api/prd/version?v=N, read-only no egress → tests/prd-roundtrip.test.mjs (buildPrdApiHandlers unit)
+- AC-P13 [M] SPA renders all 6 v2 kinds in BlockShell (comment affordance) → tests/editor-render.test.mjs
+- AC-P14 [H/M] diagram render per D3 (bundled mermaid, offline, never crashes SPA) → tests/editor-render.test.mjs + AC-P17 drift check
+- AC-P15 [H] AC-17 RE-ASSERTED for bin/planos prd (runtime + static, store.mjs fs in-scope-allowed) → tests/ac17-invariant.test.mjs (11/0) + tests/harness/import-graph.mjs ac17Roots() (VERDICT CLEAN)
+- AC-P16 [D] docs/adr/0002-prd-persistence.md records D1 (+ D3/D5/D6) — DONE
+- AC-P17 [H] committed-artifact drift: rebuilt plugin/dist/index.html byte-identical → drift check green (P4)
+- AC-P18 [D] no-Phase-2-ID-re-measurement reasoned waiver recorded → docs/adr/0002-prd-persistence.md AC-P18 section
+
+### Decisions D1–D6 (all RESOLVED, user sign-off 2026-05-16, recorded in ADR-0002)
+- D1 → Option A: prds/<doc-id>/rNNN.json + latest.json, committed to git, append-only, canonical JSON, path-traversal-safe.
+- D2 → Minimal history browser: revision list + pick-to-view + pick-diff-base, reuses src/diff/structural.mjs.
+- D3 → Bundle mermaid at SPA build time; runtime fully offline; SPA-side ONLY (NOT in bin/planos exit|prd blocking path); AC-17 import-graph stays CLEAN.
+- D4 → stdin handoff: /planos-prd pipes authored v2 JSON into bin/planos prd, reuses readStdin/extractPlan.
+- D5 → (i) reject v2 kinds in type:"plan"; (ii) table row/col mismatch = HARD validator error; (iii) phase.taskIds agent-authored like v1 task.deps (no blocking-path referential check).
+- D6 → Lighter-but-rigorous Phase-2 gate: 18-AC harness/doc/manual set + full offline suite + tsc + AC-17 import-graph CLEAN + deterministic prd-smoke. NO new frozen numeric bar, NO live ID re-measurement (AC-P18 waiver).
+
+### Final verification (Milestone P5, all green, fresh output)
+- node tests/harness/import-graph.mjs → VERDICT CLEAN (now incl. src/hook/prd.mjs + src/hook/roundtrip.mjs + src/prd/store.mjs roots)
+- node --test tests/ac17-invariant.test.mjs → tests 1, pass 1, fail 0 (own runner: 11 passed, 0 failed incl. new PRD runtime layer + extended static assertion)
+- node --test tests/*.test.mjs tests/harness/*.test.mjs → tests 40, pass 40, fail 0 (FULL suite)
+- npx tsc --noEmit → exit 0
+- node tests/harness/verify-exit-gate.mjs → exit 0 (Phase 1 exit gate NOT regressed; all exit-*.test.mjs green)
+- node tests/harness/prd-smoke.mjs → r001+r002 persisted, monotonic, shared id, append-only, diff correct, exit 0
+- Per-suite (Phase 2 core): v2-schema 31/0 · diff 17/0 · reanchor 13/0 · prd-store 20/0 · prd-roundtrip 8/0 · planos-prd-command 52/0 · planos-prd-interrupt 19/0 · editor-render 9/0 · ac17-invariant 11/0
+- OUTCOME: Phase 2 COMPLETE. All 18 AC-P satisfied (11 [H] harness-asserted, 2 [D] doc artifacts, 4 [M] scripted-smoke documented, 1 [H/M] mixed). AC-17 RE-ASSERTED (not weakened) for the new bin/planos prd entrypoint — runtime + static layers CLEAN with the prd transitive set in the audited closure. Phase 1 NOT regressed. D6 honoured: no new frozen numeric bar, no Milestone-1 ID re-measurement. No escalation/failure branch taken.

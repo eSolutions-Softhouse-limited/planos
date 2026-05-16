@@ -53,6 +53,9 @@ import {
   matchForbidden,
 } from './harness/import-graph.mjs';
 import { handleExit } from '../src/hook/exit.mjs';
+import { handlePrd } from '../src/hook/prd.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = pResolve(__dirname, '..');
@@ -107,6 +110,39 @@ const VALID_DOC = {
       acceptance: ['No non-loopback socket', 'No agent spawn'],
     },
     { id: 'q-scheme', kind: 'openQuestion', question: 'Which ID scheme wins?' },
+  ],
+};
+
+// A small but complete valid v2 PRD document (the canonical artifact the
+// blocking `bin/planos prd` path turns the agent's authored JSON into). The
+// PRD path is the Phase 2 / Milestone P5 (AC-P15) RE-ASSERTION of AC-17 for the
+// NEW blocking entrypoint — it must be just as model/network/spawn-free as the
+// exit path, including the src/prd/store.mjs filesystem persistence layer.
+const VALID_PRD_DOC = {
+  schemaVersion: 1,
+  type: 'prd',
+  id: 'ac17-prd-demo-2026-05-16',
+  title: 'AC-17 PRD Invariant Demo',
+  meta: { status: 'draft', createdAt: '2026-05-16T12:00:00.000Z', revision: 1 },
+  blocks: [
+    { id: 's-overview', kind: 'section', title: 'Overview', level: 1 },
+    { id: 'p-context', kind: 'prose', md: 'Proving the PRD blocking path makes zero model calls.' },
+    { id: 'ph-build', kind: 'phase', title: 'Build phase', taskIds: ['t-prove'] },
+    {
+      id: 't-prove',
+      kind: 'task',
+      title: 'Prove no egress on the PRD path',
+      status: 'todo',
+      deps: [],
+      acceptance: ['No non-loopback socket', 'No agent spawn', 'fs writes allowed'],
+    },
+    {
+      id: 'fc-store',
+      kind: 'fileChange',
+      path: 'src/prd/store.mjs',
+      action: 'add',
+      rationale: 'Filesystem-only persistence — in-scope-allowed (fs ≠ network/model).',
+    },
   ],
 };
 
@@ -244,6 +280,14 @@ await test('AC-17 STATIC: blocking/artifact/ID transitive set is model-free (rea
     'src/schema/id-strategy.mjs',
     'src/diff/structural.mjs',
     'src/diff/reanchor.mjs',
+    // Phase 2 / Milestone P5 (AC-P15) — the NEW bin/planos prd blocking
+    // entrypoint + its transitive set MUST be in the audited closure. The
+    // bin/planos dispatcher reaches prd.mjs via the same provable
+    // resolve(__dirname,'<lit>') unwrap as exit.mjs, and ac17Roots() now also
+    // lists these explicitly so the re-assertion is dispatcher-independent.
+    'src/hook/prd.mjs',
+    'src/hook/roundtrip.mjs',
+    'src/prd/store.mjs',
   ]) {
     assert.ok(
       names.includes(expected),
@@ -489,6 +533,239 @@ await test('AC-17 RUNTIME: zero external egress + zero agent/process spawn durin
     parsed.hookSpecificOutput.decision.behavior,
     'allow',
     'the decision is still emitted offline with zero egress + zero spawn',
+  );
+});
+
+// ===========================================================================
+// LAYER 2b — RUNTIME no-egress / no-spawn assertion during `bin/planos prd`
+// (Phase 2 / Milestone P5 — AC-P15: AC-17 RE-ASSERTED for the NEW blocking
+// entrypoint). Mirrors LAYER 2 EXACTLY — same lowest-boundary interceptors
+// (node:net connect, node:dns lookup, node:child_process spawn/exec/fork,
+// global fetch, http(s).request) — but drives `handlePrd` (the bin/planos prd
+// dispatch target) instead of `handleExit`. Asserts ZERO non-loopback egress
+// and ZERO agent/process spawn through the prd → server → schema → diff →
+// src/prd/store.mjs path. The src/prd/store.mjs `node:fs` revision writes are
+// explicitly in-scope-allowed (filesystem ≠ network/model — the SAME boundary
+// logic as the exit.mjs browser-opener note); they happen against a private
+// mkdtemp root so the repo's real prds/ tree is never touched. The SCRIPTED
+// decisionProvider seam keeps it fully offline (no SPA, loopback POST only).
+// ===========================================================================
+
+await test('AC-17 RUNTIME (PRD): zero external egress + zero agent/process spawn during scripted bin/planos prd', async () => {
+  // Mutable CJS handles (ESM namespaces are frozen — see top-of-file note).
+  const net = require('node:net');
+  const dns = require('node:dns');
+  const cp = require('node:child_process');
+  const http = require('node:http');
+  const https = require('node:https');
+
+  const egress = [];
+  const spawns = [];
+  const dnsLookups = [];
+
+  const isLoopbackHost = (host) =>
+    host == null ||
+    host === '' ||
+    host === '127.0.0.1' ||
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '0.0.0.0';
+
+  // --- node:net connect (the lowest socket boundary; LOAD-BEARING). ---------
+  const origConnect = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function patched(...args) {
+    let host;
+    const a0 = args[0];
+    if (a0 && typeof a0 === 'object') host = a0.host ?? a0.path;
+    else if (typeof args[1] === 'string') host = args[1];
+    if (!isLoopbackHost(host)) egress.push(`net.connect:${host}`);
+    return origConnect.apply(this, args);
+  };
+
+  // --- node:dns (defense-in-depth; best-effort patch). ----------------------
+  const origLookup = dns.lookup;
+  const origPromisesLookup = dns.promises && dns.promises.lookup;
+  const safeSet = (obj, key, value) => {
+    try {
+      obj[key] = value;
+      return obj[key] === value;
+    } catch {
+      return false;
+    }
+  };
+  function spyLookup(hostname, ...rest) {
+    if (!isLoopbackHost(hostname)) {
+      dnsLookups.push(`dns.lookup:${hostname}`);
+      egress.push(`dns.lookup:${hostname}`);
+    }
+    return origLookup.call(dns, hostname, ...rest);
+  }
+  const lookupPatched = safeSet(dns, 'lookup', spyLookup);
+  let promisesLookupPatched = false;
+  if (dns.promises && origPromisesLookup) {
+    promisesLookupPatched = safeSet(
+      dns.promises,
+      'lookup',
+      function spyPromisesLookup(hostname, ...rest) {
+        if (!isLoopbackHost(hostname)) {
+          dnsLookups.push(`dns.promises.lookup:${hostname}`);
+          egress.push(`dns.promises.lookup:${hostname}`);
+        }
+        return origPromisesLookup.call(dns.promises, hostname, ...rest);
+      },
+    );
+  }
+
+  // --- node:child_process — ANY spawn/exec/fork on the prd blocking path is a
+  //     violation here (the test injects a NO-OP opener, so ZERO process
+  //     creation must occur). -------------------------------------------------
+  const cpMethods = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'];
+  const origCp = {};
+  for (const meth of cpMethods) {
+    origCp[meth] = cp[meth];
+    cp[meth] = function blockedSpawn(cmd) {
+      spawns.push(`child_process.${meth}:${String(cmd)}`);
+      const e = new Error(`AC-17: child_process.${meth} blocked in test`);
+      e.code = 'AC17_BLOCKED';
+      throw e;
+    };
+  }
+
+  // --- global fetch + http(s).request — high-level egress surfaces. The
+  //     scripted loopback POST (127.0.0.1) is permitted; non-loopback = egress.
+  const origFetch = globalThis.fetch;
+  if (typeof origFetch === 'function') {
+    globalThis.fetch = function spyFetch(input, init) {
+      let host;
+      try {
+        host = new URL(typeof input === 'string' ? input : input.url).hostname;
+      } catch {
+        host = String(input);
+      }
+      if (!isLoopbackHost(host)) egress.push(`fetch:${host}`);
+      return origFetch.call(globalThis, input, init);
+    };
+  }
+  const wrapRequest = (mod, name) => {
+    const orig = mod.request;
+    mod.request = function spyRequest(opts, ...rest) {
+      let host;
+      if (typeof opts === 'string') {
+        try {
+          host = new URL(opts).hostname;
+        } catch {
+          host = opts;
+        }
+      } else if (opts && typeof opts === 'object') {
+        host = opts.host ?? opts.hostname;
+      }
+      if (!isLoopbackHost(host)) egress.push(`${name}.request:${host}`);
+      return orig.call(mod, opts, ...rest);
+    };
+    return () => {
+      mod.request = orig;
+    };
+  };
+  const restoreHttp = wrapRequest(http, 'http');
+  const restoreHttps = wrapRequest(https, 'https');
+
+  // Stub process.exit so finish() does not kill this runner; capture stdout.
+  const origExit = process.exit;
+  const origWrite = process.stdout.write;
+  let emitted = '';
+  process.exit = () => {};
+  process.stdout.write = function spy(chunk, enc, cb) {
+    emitted += typeof chunk === 'string' ? chunk : chunk.toString();
+    if (typeof enc === 'function') enc();
+    else if (typeof cb === 'function') cb();
+    return true;
+  };
+
+  // Private persistence root — the repo's real prds/ tree is NEVER touched;
+  // src/prd/store.mjs fs writes land here (in-scope-allowed: fs ≠ egress).
+  const prdRoot = mkdtempSync(join(tmpdir(), 'planos-ac17-prd-'));
+
+  let realOpenerSpawned = false;
+  try {
+    // SCRIPTED mode: a decisionProvider is injected (no SPA, no /api/prd
+    // handlers). It performs the SOLE permitted socket — a loopback POST to
+    // 127.0.0.1/api/approve — exactly as a real browser/loader would, so the
+    // blocking promise resolves deterministically and src/prd/store.mjs
+    // persists r001 to the tmpdir. NO real OS opener is ever spawned.
+    await handlePrd({
+      stdinText: JSON.stringify({
+        tool_input: { plan: JSON.stringify(VALID_PRD_DOC) },
+      }),
+      rootDir: prdRoot,
+      openBrowser: () => {
+        realOpenerSpawned = false; // explicit: no real OS opener was spawned
+      },
+      decisionProvider: ({ url }) => {
+        const port = Number(new URL(url).port);
+        const body = JSON.stringify({ source: 'ac17-prd-runtime' });
+        // node:http to 127.0.0.1 — the SOLE permitted (loopback) socket.
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port,
+            path: '/api/approve',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body),
+            },
+          },
+          (r) => r.resume(),
+        );
+        req.on('error', () => {});
+        req.end(body);
+      },
+    });
+  } finally {
+    net.Socket.prototype.connect = origConnect;
+    if (lookupPatched) safeSet(dns, 'lookup', origLookup);
+    if (promisesLookupPatched) safeSet(dns.promises, 'lookup', origPromisesLookup);
+    for (const meth of cpMethods) cp[meth] = origCp[meth];
+    if (typeof origFetch === 'function') globalThis.fetch = origFetch;
+    restoreHttp();
+    restoreHttps();
+    process.exit = origExit;
+    process.stdout.write = origWrite;
+    rmSync(prdRoot, { recursive: true, force: true });
+  }
+
+  assert.deepEqual(
+    egress,
+    [],
+    `AC-17 VIOLATION — non-loopback network egress during bin/planos prd: ${egress.join(', ')}`,
+  );
+  assert.deepEqual(
+    dnsLookups,
+    [],
+    `AC-17 VIOLATION — external DNS resolution during bin/planos prd: ${dnsLookups.join(', ')}`,
+  );
+  assert.deepEqual(
+    spawns,
+    [],
+    `AC-17 VIOLATION — process/agent spawn during bin/planos prd (filesystem persistence must NOT spawn): ${spawns.join(', ')}`,
+  );
+  assert.equal(realOpenerSpawned, false, 'the real OS browser-opener was never invoked on the prd test path');
+
+  const parsed = JSON.parse(emitted.trim());
+  assert.equal(
+    parsed.hookSpecificOutput.hookEventName,
+    'PrdRoundTrip',
+    'the PRD round-trip emitted its decision offline',
+  );
+  assert.equal(
+    parsed.hookSpecificOutput.decision.behavior,
+    'allow',
+    'the PRD decision is still emitted offline with zero egress + zero spawn',
+  );
+  assert.equal(
+    parsed.hookSpecificOutput.prd.persisted,
+    true,
+    'src/prd/store.mjs persisted the revision via node:fs (filesystem write is in-scope-allowed: fs ≠ network/model)',
   );
 });
 
