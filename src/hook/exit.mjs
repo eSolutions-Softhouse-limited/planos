@@ -50,7 +50,7 @@
 
 'use strict';
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -80,11 +80,41 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Absolute path to the prebuilt single-file SPA (committed; built offline by
- * `npm run build:editor`). Resolved from this module so the binary works from
- * any cwd.
+ * Resolve the prebuilt single-file SPA (committed; built offline by
+ * `npm run build:editor`).
+ *
+ * The bundle is found at different relative locations depending on how planos
+ * runs: in-place from the source repo (`src/hook/` → `../../plugin/dist`), or
+ * from an installed plugin package where the layout is flattened (`dist/` a
+ * sibling of `bin/`, `src/` vendored alongside). A single hardcoded relative
+ * path silently produced the "SPA bundle not built" fallback whenever the
+ * install layout differed. Try an ordered candidate list and use the first
+ * that exists; `null` only if NONE exist (true missing-bundle).
+ *
+ * @returns {string|null}
  */
-const SPA_HTML_PATH = resolve(__dirname, '../../plugin/dist/index.html');
+function resolveSpaHtmlPath() {
+  const candidates = [
+    // Source-repo layout: <root>/src/hook/exit.mjs → <root>/plugin/dist/…
+    resolve(__dirname, '../../plugin/dist/index.html'),
+    // Packaged layout: src/ vendored under the plugin → <pkg>/dist/index.html
+    resolve(__dirname, '../../dist/index.html'),
+    // src/ one level under the plugin (…/plugin/src/hook → …/plugin/dist)
+    resolve(__dirname, '../dist/index.html'),
+    // Defensive deeper-nesting fallbacks.
+    resolve(__dirname, '../../../plugin/dist/index.html'),
+    resolve(__dirname, '../../../dist/index.html'),
+    // Last resort: relative to the process cwd (repo or plugin root).
+    resolve(process.cwd(), 'plugin/dist/index.html'),
+    resolve(process.cwd(), 'dist/index.html'),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+const SPA_HTML_PATH = resolveSpaHtmlPath();
 
 // ---------------------------------------------------------------------------
 // Tuned directive preamble (design.md §2 "Strong-directive deny preamble";
@@ -502,12 +532,67 @@ export function openBrowserReal(url) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Self-contained degraded view, served ONLY when the prebuilt SPA bundle
+ * cannot be located at runtime (install layout differs / editor not built).
+ *
+ * The previous fallback emitted `Loading plan… (SPA bundle not built — using
+ * /api/plan)` and relied on a `GET /api/plan` fetch. That endpoint exists ONLY
+ * in plan mode — in review mode the server serves `/api/review` and in PRD
+ * mode `/api/prd` — so the old fallback hung forever on "Loading plan…" for
+ * `/planos-review` and `/planos-prd` (the reported bug). This replacement is
+ * fully self-contained: it inlines the document (both as
+ * `window.__PLANOS_DOC__` for a future bundle and as escaped, human-readable
+ * JSON) so the reviewer can always SEE the content and approve via the CLI —
+ * it makes ZERO network calls and never hangs.
+ *
+ * Pure string build; no fs, no network, no model.
+ *
+ * @param {import('../schema/types').Document} doc
+ * @returns {string}
+ */
+export function buildDegradedHtml(doc) {
+  const safeJson = JSON.stringify(doc, null, 2).replace(/[<&]/g, (c) =>
+    c === '<' ? '&lt;' : '&amp;',
+  );
+  const inlineDoc =
+    `<script>window.__PLANOS_DOC__=` +
+    JSON.stringify(doc).replace(/<\/(script)/gi, '<\\/$1') +
+    `;</script>`;
+  const safeTitle = String((doc && doc.title) || 'planos document').replace(
+    /[<&]/g,
+    (c) => (c === '<' ? '&lt;' : '&amp;'),
+  );
+  return (
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+    '<title>planos — degraded view</title>' +
+    '<style>html,body{margin:0;padding:0}*,*::before,*::after{box-sizing:border-box}' +
+    'body{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;' +
+    'background:#0d1117;color:#e6edf3;padding:24px}' +
+    'h1{font:600 16px system-ui;margin:0 0 4px}' +
+    '.note{color:#f0b72f;font:13px system-ui;margin:0 0 16px}' +
+    'pre{background:#161b22;border:1px solid #30363d;border-radius:8px;' +
+    'padding:16px;overflow:auto;white-space:pre-wrap;word-break:break-word}</style>' +
+    inlineDoc +
+    '</head><body><div id="root">' +
+    `<h1>${safeTitle}</h1>` +
+    '<p class="note">SPA bundle could not be located — showing the ' +
+    'structured document directly (read-only degraded view). Approve / ' +
+    'request changes via the CLI.</p>' +
+    `<pre>${safeJson}</pre>` +
+    '</div></body></html>'
+  );
+}
+
+/**
  * Read the prebuilt single-file SPA and inline the canonical document into it
  * as `window.__PLANOS_DOC__` so the editor renders the real plan with zero
  * network round-trip (the loader's first resolution branch). `/api/plan` is
  * ALSO exposed (loader's second branch) for defense-in-depth. If the built
- * file is missing (editor not built yet) we fall back to a minimal shell that
- * still resolves via `/api/plan` — the user is never blocked.
+ * file cannot be located (install layout differs / editor not built) we fall
+ * back to {@link buildDegradedHtml}: a SELF-CONTAINED read-only view that
+ * inlines the doc — it never hangs on `/api/plan` (which does not exist in
+ * review/prd mode). The user is never blocked.
  *
  * Pure read of a committed local file; no network, no model.
  *
@@ -515,18 +600,16 @@ export function openBrowserReal(url) {
  * @returns {string}
  */
 export function buildSpaHtml(doc) {
-  let html;
-  try {
-    html = readFileSync(SPA_HTML_PATH, 'utf8');
-  } catch {
-    // Editor bundle not present — minimal shell; loader falls back to
-    // GET /api/plan which we still serve.
-    return (
-      '<!doctype html><html><head><meta charset="utf-8">' +
-      '<title>planos</title></head><body><div id="root">' +
-      'Loading plan… (SPA bundle not built — using /api/plan)</div>' +
-      '</body></html>'
-    );
+  let html = null;
+  if (typeof SPA_HTML_PATH === 'string') {
+    try {
+      html = readFileSync(SPA_HTML_PATH, 'utf8');
+    } catch {
+      html = null;
+    }
+  }
+  if (html === null) {
+    return buildDegradedHtml(doc);
   }
   // Inline the doc just before </head> so the loader's window.__PLANOS_DOC__
   // branch resolves first. JSON.stringify is safe to embed in a <script>

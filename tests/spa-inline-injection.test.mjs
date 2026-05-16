@@ -33,7 +33,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildSpaHtml } from '../src/hook/exit.mjs';
+import { buildSpaHtml, buildDegradedHtml } from '../src/hook/exit.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(__dirname, '..', 'plugin', 'dist', 'index.html');
@@ -130,5 +130,68 @@ test('buildSpaHtml: inline doc lands after the whole bundle, not mid-DOMPurify',
   assert.ok(
     !/<\/script[\s/>]/i.test(payload),
     'embedded </script> in plan text must be neutralized in the inline payload',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Degraded-fallback regression: the reported `/planos-review` bug —
+// "Loading plan… (SPA bundle not built — using /api/plan)" hung forever
+// because the fallback fetched /api/plan, which does NOT exist in review
+// (/api/review) or prd (/api/prd) mode. The replacement must be fully
+// self-contained: inline the doc, never reference /api/plan, never hang.
+// ---------------------------------------------------------------------------
+
+test('buildDegradedHtml: self-contained, inlines the doc, never hangs on /api/plan', () => {
+  const html = buildDegradedHtml(SAMPLE_DOC);
+
+  // Well-formed standalone document.
+  assert.ok(
+    html.trim().startsWith('<!doctype html>') && html.trim().endsWith('</html>'),
+    'degraded view must be a well-formed standalone HTML document',
+  );
+
+  // The exact old infinite-loading text + the /api/plan dependency are GONE.
+  assert.ok(
+    !html.includes('SPA bundle not built — using /api/plan'),
+    'must not emit the old misleading "/api/plan" loading shell',
+  );
+  assert.ok(
+    !html.includes('/api/plan') &&
+      !html.includes('/api/review') &&
+      !html.includes('/api/prd'),
+    'degraded view must make ZERO API calls (fully self-contained)',
+  );
+
+  // The doc is inlined exactly once for a future bundle…
+  const INJ = '<script>window.__PLANOS_DOC__=';
+  assert.equal(
+    html.split(INJ).length - 1,
+    1,
+    'doc must be inlined exactly once as window.__PLANOS_DOC__',
+  );
+
+  // …and the content is human-readable so a reviewer can SEE/approve it.
+  assert.ok(
+    html.includes(SAMPLE_DOC.id),
+    'degraded view must show the document content (id present in JSON)',
+  );
+  // The adversarial `</script>` from the doc text must be HTML-escaped (`<`
+  // → `&lt;`) so it is inert page text inside <pre>, not a real tag.
+  const preStart = html.indexOf('<pre>');
+  const preEnd = html.indexOf('</pre>', preStart);
+  assert.ok(preStart !== -1 && preEnd > preStart, 'a readable <pre> block exists');
+  const preBody = html.slice(preStart + '<pre>'.length, preEnd);
+  assert.ok(
+    preBody.includes('&lt;/script') && !/<\/script[\s/>]/i.test(preBody),
+    'doc JSON inside <pre> must be HTML-escaped (no live </script>)',
+  );
+
+  // The adversarial </script> in plan text must not introduce an extra
+  // parser-recognized script close beyond the single inline terminator.
+  const closes = (html.match(/<\/script[\s/>]/gi) || []).length;
+  assert.equal(
+    closes,
+    1,
+    `exactly one parser-recognized </script> (the inline's own); got ${closes}`,
   );
 });
