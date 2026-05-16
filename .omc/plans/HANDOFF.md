@@ -30,21 +30,21 @@ and committed. Do NOT rebuild them.
 11. docs/notes/planos-review-command.md      — Phase-3 /planos-review AC-17 boundary note
 12. .omc/state/sessions/*/prd.json           — Phase-1 26 stories (all passes:true)
 
-## Verified state (HEAD 2bf39f9 on main; tree clean except .omc state churn)
-Re-run to confirm before any new work:
+## Verified state — PROJECT COMPLETE (planos v1.0.0; HEAD 5b668b8 on main; pushed)
+ALL 4 PHASES DONE. design.md §3 (all three entry modes) + Phase-4 polish ship.
+Re-run to confirm:
   node --test tests/*.test.mjs tests/harness/*.test.mjs 2>&1 | grep -E '^ℹ (tests|pass|fail)'
   npx tsc --noEmit ; echo tsc=$?
-  node tests/harness/import-graph.mjs 2>&1 | tail -1                 # must be VERDICT CLEAN (incl. review roots)
-  node tests/harness/verify-exit-gate.mjs >/dev/null 2>&1; echo $?   # Phase-1 gate, must be 0
+  node tests/harness/import-graph.mjs 2>&1 | tail -1                 # VERDICT CLEAN (ac17Roots UNCHANGED; Q5 negative proof)
+  node tests/harness/verify-exit-gate.mjs >/dev/null 2>&1; echo $?   # Phase-1 FROZEN gate, 0
   node tests/harness/prd-smoke.mjs 2>&1 | tail -1                    # Phase-2 persistence, PASS
   node tests/harness/review-smoke.mjs 2>&1 | tail -1                 # Phase-3 envelope shape, PASS
-Expected: full suite 45/45/0; tsc=0; AC-17 VERDICT CLEAN; Phase-1 gate 0;
+Expected: full suite 49/49/0; tsc=0; AC-17 VERDICT CLEAN; Phase-1 gate 0;
 prd-smoke PASS; review-smoke PASS. (ac17-invariant.test.mjs:46 'require' TS
 hint is the KNOWN false-positive — used at runtime, not a regression.)
-Commits: 013e7cb Phase1 · 4111c8f Phase1-consolidation · 8ed5b66 P0+P1 ·
-134f277 P2 · f3ec44b P4 · dad6167 P3 · b4dd894 P5(Phase2 done) ·
-8e68690 R0 · e63ae17 R1 · b050d2c R2 · 72cb88f R3 · 648cdd7 R4 ·
-2bf39f9 R5(Phase3 done).
+Commits: …b4dd894 P5(Phase2) · 2bf39f9 R5(Phase3) · cebe010 P3-handoff ·
+8d60389 Q0 · 5afcaf8 Q1 · 034ba2a Q2 · 4bf4e7d Q3 · 9039cdb Q4 ·
+5b668b8 Q5(Phase4 done — v1.0.0).
 
 ## What exists & works (do not redo)
 - Plan-mode loop: EnterPlanMode (PreToolUse → bin/planos enter injects v1 schema)
@@ -62,33 +62,36 @@ Commits: 013e7cb Phase1 · 4111c8f Phase1-consolidation · 8ed5b66 P0+P1 ·
   src/prd/store.mjs. Harness: tests/harness/{runner,live-driver,run-live,
   metrics,import-graph,verify-exit-gate,prd-smoke,seams}.mjs + 22 test files.
 
-## Your remaining work — Phase 4 ONLY (design.md §9)
-PHASE 3 — Diff review mode — ✅ COMPLETE, verified, committed (HEAD 2bf39f9).
-  /planos-review [PR# | git range] command → bin/planos review blocking CLI
-  (ephemeral, NOT persisted — R2); v3 `diff`/`Hunk`/`DiffLine`/`BlockComment`
-  kinds; pure src/review/ingest.mjs unified-diff parser (gh/git run pre-server
-  in the CLI agent loop — R1 Option A, blocking path stays model/net/spawn-
-  free); per-hunk accept/reject/comment via existing editBlock op (R5, no new
-  envelope op); structured ReviewRoundTrip envelope. ADR-0003 ACCEPTED records
-  R1–R7 + AC-R-WAIVER. AC-17 RE-ASSERTED (review roots, LAYER 2c) VERDICT
-  CLEAN. All 16 AC-R green; Phase 1+2 NOT regressed. Commits R0 8e68690 ·
-  R1 e63ae17 · R2 b050d2c · R3 72cb88f · R4 648cdd7 · R5 2bf39f9.
-  Plan: .omc/plans/planos-phase3-plan.md (Resolved Decisions signed off
-  2026-05-16). Full build log: .omc/plans/progress.txt Phase 3 section.
-PHASE 4 — Polish & distribution (the ONLY remaining work):
-  themes; markdown/PDF export; optional Bun single-binary; marketplace listing;
-  the DEFERRED full plannotator hook-collision *resolution* (today we
-  detect-and-refuse, which is sufficient but not coexistence — user-confirmed
-  descoped through Phase 3; Phase-4 scope).
+## Remaining work — NONE. planos is COMPLETE (v1.0.0, all 4 phases).
+PHASE 3 — Diff review mode — ✅ COMPLETE (HEAD 2bf39f9; ADR-0003; 16 AC-R).
+PHASE 4 — Polish & distribution — ✅ COMPLETE (HEAD 5b668b8; ADR-0004; v1.0.0).
+  IN (shipped): themes (light/dark/OS-auto, SPA-side, theme.ts token layer);
+  markdown export — pure src/export/markdown.mjs serializer consumed SPA
+  ("Download .md") + out-of-blocking-path `bin/planos export` CLI; PDF via
+  browser window.print() + @media print stylesheet (zero new dep); marketplace
+  listing hardened (plugin.json/marketplace.json schema-valid, README +
+  plugin/README, version 1.0.0); design.md §10 plannotator row FORMALLY
+  CLOSED (refuse-on-collision is the permanent posture — full coexistence
+  infeasible without a CC cross-plugin primitive; user-descoped).
+  DEFERRED w/ recorded rationale in ADR-0004: Bun single-binary (Q5),
+  encrypted local share (Q6), graceful plannotator coexistence (Q7).
+  AC-17 RE-ASSERTED by NEGATIVE proof (export modules ABSENT from the
+  exit|prd|review blocking-handler closure; ac17Roots() UNCHANGED — no new
+  blocking root / carve-out). Commits Q0 8d60389 · Q1 5afcaf8 · Q2 034ba2a ·
+  Q3 4bf4e7d · Q4 9039cdb · Q5 5b668b8. Plan:
+  .omc/plans/planos-phase4-plan.md (Resolved Decisions Q1–Q8 signed off
+  2026-05-16). Full build log: .omc/plans/progress.txt Phase 4 section.
 
-Recommended path: plan Phase 4 with the architect agent (same process that
-produced planos-phase2-plan.md + planos-phase3-plan.md — it went smoothly),
-surface its Open Decisions for user sign-off, then execute milestone-by-
-milestone with a verify gate (suite + tsc + AC-17 + Phase-1 gate + prd-smoke
-+ review-smoke) between every milestone, one commit per milestone. Mirror the
-Phase-2/3 milestone discipline exactly. NOTE: Phase 4 is largely additive
-polish — NOT blocking-path engine work; keep the AC-17 invariant and the
-committed single-file offline plugin/dist/index.html (drift check) intact.
+No further phases planned. design.md §3 (plan / PRD / diff-review) + §9 all
+delivered. Any future work is new scope: open a fresh plan with the architect,
+surface Open Decisions for sign-off, execute milestone-by-milestone with the
+verify gate (suite + tsc + AC-17 import-graph CLEAN + Phase-1 FROZEN gate +
+prd-smoke + review-smoke) between every milestone, one commit per milestone.
+Keep the AC-17 invariant and the committed single-file offline
+plugin/dist/index.html (byte-identical drift check, <4 MB cap) intact.
+KNOWN OPEN ITEM (non-blocking): plugin.json `license` = "UNLICENSED" (no
+LICENSE file exists; honest default for a private esolutions.gr repo) — set
+a real license if marketplace distribution is intended.
 
 ## Hard constraints (do NOT violate)
 - AC-17: NO model call / network egress / agent spawn inside ANY blocking
