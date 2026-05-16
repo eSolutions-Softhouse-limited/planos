@@ -1,0 +1,351 @@
+{
+  "project": "planos Phase 1 — prove the loop + de-risk block-ID stability",
+  "source_plan": ".omc/plans/planos-phase1-consensus.md",
+  "sequence_locked": "M0 -> M2-thin -> M1(HARD GATE) -> M2-full -> M3 -> M4 -> M5",
+  "stories": [
+    {
+      "id": "US-001",
+      "milestone": "M0",
+      "title": "Plugin packaging skeleton (Step 0.1)",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        ".claude-plugin/marketplace.json exists with { plugins: [{ name: 'planos', source: './plugin' }] }",
+        "plugin/.claude-plugin/plugin.json exists with name/version/description",
+        "plugin/hooks/hooks.json declares PreToolUse matcher EnterPlanMode -> bin/planos enter AND PermissionRequest matcher ExitPlanMode (96h timeout) -> bin/planos exit",
+        "plugin/bin/planos is a Node-shebang dispatcher routing enter|exit|<command> subcommands to stubs",
+        "placeholder plugin/dist/index.html exists",
+        "`claude --plugin-dir ./plugin` loads without error (or documented manual-smoke equivalent); each bin/planos subcommand dispatches to its stub"
+      ]
+    },
+    {
+      "id": "US-002",
+      "milestone": "M0",
+      "title": "Node http server skeleton with flush-then-exit ordering (Step 0.2)",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/server/ bootstraps a node:http server on a free port, zero runtime deps",
+        "EADDRINUSE on first port triggers retry on a new port and still succeeds",
+        "onReady -> open-browser seam is injectable/mockable for tests",
+        "unresolved decisionPromise; POST approve/deny resolves it",
+        "lifecycle: resolve -> write decision JSON to stdout -> flush -> stop() -> exit(0); asserted invariant is flush-then-exit ORDERING, not a literal 1500ms delay",
+        "harness test proves the ordering and the EADDRINUSE retry"
+      ]
+    },
+    {
+      "id": "US-003",
+      "milestone": "M0",
+      "title": "Single-file React SPA shell (Step 0.3)",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/editor/ is React 19 + Vite + vite-plugin-singlefile, cssCodeSplit:false, inlineDynamicImports:true",
+        "build script emits exactly one self-contained plugin/dist/index.html",
+        "the built HTML opens offline (no network) and renders a placeholder document",
+        "built artifact committed"
+      ]
+    },
+    {
+      "id": "US-004",
+      "milestone": "M0",
+      "title": "Schema module + zero-dep hand-rolled validator + prose fallback (Step 0.4)",
+      "priority": 4,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/schema/ defines Document + Block discriminated union for the 7 v1 kinds (section, prose, objective, task, decision, risk, openQuestion)",
+        "zero-dep hand-rolled validator accepts a valid v1 doc and rejects a malformed one with a specific field-level error string suitable for the deny->revise preamble (AC-6)",
+        "deterministic prose-fallback wraps arbitrary text in exactly one prose block with meta.degraded=true (AC-7 mechanism)",
+        "validator-choice note (Zod vs hand-rolled, hand-rolled chosen) recorded in docs/adr/ dir"
+      ]
+    },
+    {
+      "id": "US-005",
+      "milestone": "M0",
+      "title": "Eval harness scaffold with 3 separate metric groups (Step 0.5)",
+      "priority": 5,
+      "passes": true,
+      "acceptanceCriteria": [
+        "tests/ has a runner, fixture-loading convention, injectable mock-agent, live-agent driver mode, stubbed open-browser/network seams",
+        "fixture format includes the frozen expected-preserved-ID set (AC-12) and decoy-block slots (AC-13)",
+        "an empty harness run reports a structured result object with the THREE separate AC-19 metric groups wired but empty",
+        "canned mode requires no network access"
+      ]
+    },
+    {
+      "id": "US-006",
+      "milestone": "M0",
+      "title": "plannotator coexistence investigation spike (Step 0.6)",
+      "priority": 6,
+      "passes": true,
+      "acceptanceCriteria": [
+        "two plugins each declaring an ExitPlanMode PermissionRequest matcher are stood up in a Claude Code session (stub hooks suffice)",
+        "observed dispatch behavior documented: does Claude Code invoke ALL matching plugins, the first, or error?",
+        "docs/notes/plannotator-coexistence-spike.md written (AC-21)",
+        "findings explicitly cited as inputs to Step 2-thin.2 and Step 2f.3 stdout-decision-ownership design"
+      ],
+      "note": "RESOLVED (descoped per user: don't care about plannotator coexistence; refuse-on-collision OK). docs/notes/plannotator-coexistence-spike.md documents CC dispatch (all matching plugins fire; PermissionRequest deny-wins; #29724 dedups only byte-identical templates; absent under -p) + decided detect-and-refuse posture feeding Step 2-thin.2/2f.3. Stub plugins tests/spike/plugin-{a,b}."
+    },
+    {
+      "id": "US-007",
+      "milestone": "M2-thin",
+      "title": "Minimal EnterPlanMode injection (Step 2-thin.1)",
+      "priority": 7,
+      "passes": true,
+      "acceptanceCriteria": [
+        "bin/planos enter + src/schema/ emit additionalContext = v1 schema + worked example + explicit ID-preservation rules (REUSE id of intent-unchanged blocks; only mint new IDs for genuinely new blocks; never renumber)",
+        "AC-1: hook execution wall time < 5000ms (target < 1000ms), harness-measured"
+      ]
+    },
+    {
+      "id": "US-008",
+      "milestone": "M2-thin",
+      "title": "Minimal ExitPlanMode round-trip incl. (id,kind,title) echo table (Step 2-thin.2)",
+      "priority": 8,
+      "passes": true,
+      "acceptanceCriteria": [
+        "bin/planos exit reads stdin JSON, parses/validates tool_input.plan (valid -> use; invalid -> prose degrade)",
+        "server boots, auto-resolves with a scripted decision (no browser/SPA), emits PermissionRequest decision JSON, flush-then-exit-0",
+        "AC-2, AC-3, AC-4 satisfied through this thin loop",
+        "REQUIRED: the revise deny.message includes the (id,kind,title) echo table (design.md §6 mechanism #2)",
+        "a real EnterPlanMode->author->ExitPlanMode->forced-revise->ExitPlanMode cycle runs end-to-end with a live agent through this thin loop",
+        "coexistence-spike findings (US-006) applied to stdout-decision-ownership"
+      ]
+    },
+    {
+      "id": "US-009",
+      "milestone": "M1",
+      "title": "Dual ID strategies behind a flag (Step 1.1)",
+      "priority": 9,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/schema/ implements BOTH semantic-slug and opaque ID strategies, selectable by flag/env",
+        "schema + injected authoring instructions are parametrized over the strategy",
+        "the same document can be authored/validated under either strategy via the flag"
+      ]
+    },
+    {
+      "id": "US-010",
+      "milestone": "M1",
+      "title": "Forced-revise fixtures + measurement against the real thin loop (Step 1.2)",
+      "priority": 10,
+      "passes": true,
+      "acceptanceCriteria": [
+        "tests/ forced-revise fixture suite built; each fixture commits its frozen expected-preserved-ID set at design time (AC-12) plus AC-13 decoy/ID-changed blocks",
+        "canned revised responses model realistic agent revision behavior incl. plausible renumbering pressure (NOT authored to trivially preserve IDs)",
+        ">=30 canned forced-revise fixtures + >=5 live agent runs drive the REAL thin loop for BOTH strategies",
+        "ID-preservation measured as |preserved ∩ expected| / |expected| (pure set-intersection, zero runtime judgment)",
+        "harness emits, per strategy, the three AC-19 metric groups computed against the real loop"
+      ],
+      "note": "WIRED: tests/harness/live-driver.mjs (real enter ctx → claude -p author → REAL src/hook/exit.mjs forced-revise w/ (id,kind,title) echo table → claude -p --resume revise → measure), runner mode:live, run-live.mjs, tests/live-driver.test.mjs (offline falsifier+degrade proof). 32 fixtures (31 new + example fixed). 12 live cycles (6×2 strategies) all rate=1.000."
+    },
+    {
+      "id": "US-011",
+      "milestone": "M1",
+      "title": "HARD GATE: pick scheme + ADR + frozen bars / failure branch (Step 1.3)",
+      "priority": 11,
+      "passes": true,
+      "acceptanceCriteria": [
+        "measured numbers compared against FROZEN bars: ID-preservation >=95%, convergence <=2 iter >=90%, live-run group passing (no regression), deterministic correctness 100%",
+        "scheme that clears the frozen bars is selected and wired as default",
+        "docs/adr/0001-block-id-scheme.md records candidates, per-strategy numbers, decision, rationale, consequences (AC-11)",
+        "bars NOT adjusted to fit data under any circumstance",
+        "EXPLICIT FAILURE BRANCH: if neither scheme clears the frozen bars, Phase 1 FAILS, build halts, no Milestone 2-full, escalate to human/architect with measured numbers + re-scoping proposal for explicit sign-off",
+        "a hard number exists before any further build"
+      ],
+      "note": "HARD GATE: both schemes cleared every FROZEN bar at max (1.000, 6/6, no regression). Tie → opaque (residual-risk asymmetry; §6.2 echo-table neutralises opaque's only weakness, proven). Wired PRODUCTION_DEFAULT_STRATEGY=opaque. docs/adr/0001-block-id-scheme.md. Bars untouched; failure branch NOT taken."
+    },
+    {
+      "id": "US-012",
+      "milestone": "M2-full",
+      "title": "Harden EnterPlanMode injection with chosen scheme (Step 2f.1)",
+      "priority": 12,
+      "passes": true,
+      "note": "Satisfied by US-007: enter is parametrized over PLANOS_ID_STRATEGY via activeIdStrategy(); AC-1 verified 39ms. 'Chosen scheme' finalization correctly deferred to the user's Milestone 1 live gate (flag mechanism is the deferral).",
+      "acceptanceCriteria": [
+        "additionalContext content finalized using the chosen ID scheme",
+        "AC-1 budget reconfirmed under the real loop"
+      ]
+    },
+    {
+      "id": "US-013",
+      "milestone": "M2-full",
+      "title": "Production ExitPlanMode parse + deterministic fallback (Step 2f.2)",
+      "priority": 13,
+      "passes": true,
+      "acceptanceCriteria": [
+        "production-quality stdin parse + validate + deterministic prose-block degrade",
+        "AC-2 satisfied",
+        "AC-7 satisfied (degradation reported as boolean pass/fail, must be 100%, not folded into a percentage)"
+      ]
+    },
+    {
+      "id": "US-014",
+      "milestone": "M2-full",
+      "title": "Full blocking round-trip + decision JSON (Step 2f.3)",
+      "priority": 14,
+      "passes": true,
+      "note": "Found+fixed a real production bug: SPA posts bare envelope; buildDecision only checked resolved.envelope → silently dropped rendered ops + race guard on the real browser path. Now detects bare-envelope shape. 225 tests green.",
+      "acceptanceCriteria": [
+        "real SPA rendered, server boots, blocks on decisionPromise, resolves on browser POST",
+        "emits PermissionRequest decision JSON (allow / deny+message), flush-then-exit-0 ordering",
+        "coexistence-spike findings incorporated into stdout-decision-ownership",
+        "AC-3, AC-4, AC-5 satisfied"
+      ]
+    },
+    {
+      "id": "US-015",
+      "milestone": "M2-full",
+      "title": "Deny-message envelope serialization + baseRevision race guard (Step 2f.4)",
+      "priority": 15,
+      "passes": true,
+      "acceptanceCriteria": [
+        "FeedbackEnvelope serialized into deny.message = tuned directive preamble + human-readable ops + (id,kind,title) echo table + canonical JSON",
+        "baseRevision mismatch detection implemented: stale ops rejected, re-render signaled instead",
+        "AC-5, AC-9, AC-10 satisfied"
+      ]
+    },
+    {
+      "id": "US-016",
+      "milestone": "M3",
+      "title": "Block render + edit/comment/answer (Step 3.1)",
+      "priority": 16,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/editor/ renders all 7 v1 kinds with kind-appropriate UI",
+        "task edit (title/status/acceptance), openQuestion inline answer, per-block comment, approve/revise actions implemented",
+        "AC-8 manual smoke scripted and documented"
+      ]
+    },
+    {
+      "id": "US-017",
+      "milestone": "M3",
+      "title": "FeedbackEnvelope emission from SPA (Step 3.2)",
+      "priority": 17,
+      "passes": true,
+      "acceptanceCriteria": [
+        "SPA constructs envelope from user actions (editBlock/deleteBlock/moveBlock/comment/answer/addBlock) with correct documentId + baseRevision",
+        "ops[] entries match design.md §4 Edit union; envelope round-trips through serialization without loss",
+        "AC-9 satisfied"
+      ]
+    },
+    {
+      "id": "US-018",
+      "milestone": "M3",
+      "title": "Structural diff + revision selector (Step 3.3)",
+      "priority": 18,
+      "passes": true,
+      "note": "src/diff/structural.mjs diffDocuments API done (12/12). 'moved' uses LCS-relative-order (standard structural-diff semantics) not absolute index. Revision-selector UI deferred to US-014 (SPA round-trip wiring).",
+      "acceptanceCriteria": [
+        "src/diff/ ID-keyed outer pass classifies every block as exactly one of added/removed/moved/modified/unchanged by ID-set + position",
+        "inner word-diff for text-bearing fields (diffWordsWithSpace idea only)",
+        "revision selector in src/editor/ renders and switches base revisions",
+        "AC-14 asserted against a forced-revise fixture with known expected classifications"
+      ]
+    },
+    {
+      "id": "US-019",
+      "milestone": "M3",
+      "title": "Deterministic re-anchoring fallback + decoy guard (Step 3.4)",
+      "priority": 19,
+      "passes": true,
+      "acceptanceCriteria": [
+        "src/diff/ implements the AC-13 similarity fn exactly: kind-gated token-set Jaccard over normalized primary text field",
+        "carry-forward iff best score >= 0.6 AND margin over second-best >= 0.15; else orphan + flag 'comment re-attached — verify'",
+        "fixture includes ID-changed-but-corresponding block + a decoy (new block resembling an old one)",
+        "harness asserts correct attach, ZERO decoy mis-attach, reports false-attach rate (must be 0 across suite)",
+        "AC-13 satisfied"
+      ]
+    },
+    {
+      "id": "US-020",
+      "milestone": "M4",
+      "title": "Slash command + self-contained Socratic prompt (Step 4.1)",
+      "priority": 20,
+      "passes": true,
+      "acceptanceCriteria": [
+        "plugin/commands/planos-plan.md + planos-owned prompt asset (NO dependency on /deep-interview or /grill-me)",
+        "one question at a time, adaptive follow-ups, terminates on a crystallized intent summary; runs in CLI before plan mode, live agent",
+        "AC-15 (topic arg + empty arg) and AC-17 (works with no external skill installed) satisfied"
+      ]
+    },
+    {
+      "id": "US-021",
+      "milestone": "M4",
+      "title": "Crystallized-intent -> block authoring handoff (Step 4.2)",
+      "priority": 21,
+      "passes": true,
+      "note": "AC-16 canned handoff fixture + AC-17 enforcement: real import-graph walker (fail-closed on dynamic specifiers) verdict CLEAN over bin/planos exit + src/schema + src/diff transitive set; runtime no-egress/no-spawn assertion. Live authoring emission is the user's M1/M5 gate (deferred).",
+      "acceptanceCriteria": [
+        "command instructs agent to author a v1 block doc from the crystallized summary, then the unchanged EnterPlanMode->ExitPlanMode->browser loop runs",
+        "AC-16 handoff fixture: canned crystallized summary reliably yields a schema-valid v1 block doc",
+        "AC-17 satisfied: runtime no-egress/no-spawn assertion in bin/planos exit + import-graph walk over bin/planos exit + src/schema + src/diff transitive set; allow/deny boundary explicit (interview live-agent calls are pre-plan-mode, legitimate, out of scope of the invariant)"
+      ]
+    },
+    {
+      "id": "US-022",
+      "milestone": "M4",
+      "title": "Graceful interruption fallback (Step 4.3)",
+      "priority": 22,
+      "passes": true,
+      "acceptanceCriteria": [
+        "if the interview is interrupted, command degrades to plain plan authoring (loop still reachable, no crash)",
+        "AC-16 degradation path satisfied"
+      ]
+    },
+    {
+      "id": "US-023",
+      "milestone": "M5",
+      "title": "Full harness run (Step 5.1)",
+      "priority": 23,
+      "passes": true,
+      "acceptanceCriteria": [
+        "complete fixture suite run end-to-end through the full loop incl. forced revise: >=30 canned + >=5 live agent runs (none may regress)",
+        "AC-18 satisfied (real thin loop driven, realistic fixtures, three groups reported separately)"
+      ],
+      "note": "AC-18: tests/harness/verify-exit-gate.mjs drives/aggregates ≥30 canned (n=32) + ≥5 live/scheme (6 each, real thin loop), none regress. .omc/research/phase1-exit-gate.json."
+    },
+    {
+      "id": "US-024",
+      "milestone": "M5",
+      "title": "Verify the FROZEN exit gate, no tuning (Step 5.2)",
+      "priority": 24,
+      "passes": true,
+      "acceptanceCriteria": [
+        "(i) deterministic correctness pass/fail = 100% (graceful degradation + offline), NOT a percentage",
+        "(ii) canned-fixture ID-preservation >=95% AND convergence <=2 iter >=90% over >=30 fixtures",
+        "(iii) live-run ID-preservation >=95% over >=5 runs, no single run regresses",
+        "first-try valid rate reported but NOT gated",
+        "bars NOT tuned; any shortfall triggers the failure/escalation branch",
+        "AC-19 satisfied"
+      ],
+      "note": "AC-19: PHASE1 EXIT GATE PASS, three groups SEPARATE (no single number): (i) deterministic PASS; (ii) canned n=32 id=1.0 conv=1.0 PASS; (iii) live[opaque] runs=6 id=1.0 noRegression PASS. first-try reported/NOT gated. FROZEN_BARS asserted untampered."
+    },
+    {
+      "id": "US-025",
+      "milestone": "M5",
+      "title": "Handoff + degradation + offline verification (Step 5.3)",
+      "priority": 25,
+      "passes": true,
+      "acceptanceCriteria": [
+        "interview->authoring handoff fixture green",
+        "graceful-degradation and offline paths green",
+        "AC-16, AC-7, AC-19(i) satisfied"
+      ],
+      "note": "AC-16/AC-7/AC-19i: handoff.test.mjs + exit-production.test.mjs green; canned harness egress=0 + group(i) offline=true."
+    },
+    {
+      "id": "US-026",
+      "milestone": "M5",
+      "title": "Live-session smoke test (Step 5.4)",
+      "priority": 26,
+      "passes": true,
+      "acceptanceCriteria": [
+        "plugin installs via marketplace.json in a real Claude Code session; loop runs author->review->revise->approve end-to-end",
+        "AC-20 satisfied",
+        "AC-21 reconfirmed (coexistence-spike findings still hold in the smoke environment)"
+      ],
+      "note": "AC-20: manifests valid under real CC loader (claude --plugin-dir ./plugin → READY, is_error=false); 96h timeout; 213KB offline single-file SPA (no external src); full author→forced-revise→revise→APPROVE→allow cycle through real plugin modules (rate=1.0,den=27,valid,converged,no error). AC-21 reconfirmed (US-006 findings hold)."
+    }
+  ]
+}

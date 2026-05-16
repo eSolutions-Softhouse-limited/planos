@@ -1,0 +1,82 @@
+# planos Phase 1 — Ralph progress log
+
+## Iteration 1 — 2026-05-16
+- Reset greenfield repo, deep-interview spec, consensus plan all complete (pending-approval → user approved via /ralph).
+- PRD written: 26 stories, milestone-locked order M0 → M2-thin → M1(HARD GATE) → M2-full → M3 → M4 → M5.
+- Source plan: .omc/plans/planos-phase1-consensus.md ; spec: .omc/specs/deep-interview-planos-phase1.md ; design: docs/design.md
+- Tech constraints: Node 20+, node:http only, zero runtime deps in blocking path, React 19 + Vite + vite-plugin-singlefile, hand-rolled validator, committed plugin/dist/index.html.
+
+### Codebase patterns / learnings
+- Repo is greenfield: only README.md + docs/design.md + .omc/. Target structure = design.md §8.
+- AC-17 invariant: NO model call inside blocking `bin/planos exit` path (IDs are agent-authored by design — that's why §6 mechanisms exist).
+- Milestone 1 is a HARD GATE: frozen bars (ID-preservation ≥95%, convergence ≤2 iter ≥90%), no tuning, explicit failure/escalation branch.
+
+### Status — Milestone 0 (code) COMPLETE & verified
+- US-001 ✅ packaging skeleton (marketplace.json, plugin.json, hooks.json 96h, bin/planos dispatcher) — JSON valid, subcommands dispatch, evidence captured.
+- US-002 ✅ node:http server skeleton — 20/20 smoke tests pass incl. real child-process flush-then-exit-0 ordering proof + EADDRINUSE retry. Zero deps.
+- US-003 ✅ React 19 + Vite single-file SPA shell — one self-contained plugin/dist/index.html (197 KB), offline, npx tsc --noEmit = 0 errors after adding @types/react + tsconfig.
+- US-004 ✅ schema + zero-dep hand-rolled validator + deterministic prose fallback — 16/16 tests, field-level deny-loop error strings, validator-choice ADR (docs/adr/0000), clean diagnostics.
+- US-005 ✅ eval harness scaffold — 7/7 tests, 3 separate AC-19 metric groups wired, AC-12 mechanical |preserved∩expected|/|expected| denominator, offline canned mode, fixture format w/ frozen expected set + decoy slots.
+- US-006 ⛔ BLOCKED — plannotator coexistence spike requires a live multi-plugin Claude Code session to observe ExitPlanMode dispatch. Environment-dependent; needs the user to run it (cannot be done autonomously).
+
+### Cleanup applied
+- Added @types/react, @types/react-dom, typescript devDeps + tsconfig.json (resolved all SPA TS diagnostics; npx tsc --noEmit clean).
+- Removed unused rejectDecision in src/server/index.mjs.
+
+### Genuine blockers requiring user input / environment (ralph escalation)
+1. US-006 coexistence spike — needs a live `claude` session with two ExitPlanMode plugins.
+2. Milestone 1 HARD GATE — requires ≥5 LIVE Claude Code agent runs through the real thin loop to measure ID-preservation. Not autonomously executable in this session (needs real agent invocations + the user's environment).
+3. US-026 live-session smoke — needs a real Claude Code install/run.
+- These are fundamental blockers per ralph Escalation_And_Stop_Conditions ("Stop and report when a fundamental blocker requires user input"). Milestones 2-thin/2-full/3/4 code can proceed, but the Phase-1 EXIT GATE cannot be cleared without #2.
+
+## Iteration 2 — 2026-05-16 (user chose: keep building autonomous code through M4)
+- US-007 ✅ minimal EnterPlanMode injection — 19/19, 39ms (<<5s AC-1), real per-strategy text flows.
+- US-009 ✅ dual ID strategies behind PLANOS_ID_STRATEGY flag — 20/20; NO winner chosen (M1 decision deferred to user live gate); src/schema/index.mjs barrel + activeIdStrategy(); schema 16/16 no regression.
+- US-008 ✅ minimal ExitPlanMode round-trip (thin loop) — 13/13; AC-2/3/4; (id,kind,title) echo table present on revise (design.md §6 mech #2); zero egress (socket spy); full canned enter→author→exit→forced-revise→exit cycle; all prior suites no regression.
+- Integration fix: enter.mjs now uses real src/schema/index.mjs activeIdStrategy().authoringInstruction (was looking for a wrong export name + dead var); verified opaque-strategy text flows.
+- M2-thin COMPLETE. Diagnostics cleaned (removed unused vars/imports in test files).
+- Next: M2-full (US-012 harden enter [≈done via US-007], US-013 production parse+fallback AC-2/7, US-014 full round-trip+SPA AC-3/4/5, US-015 deny-envelope+baseRevision race guard AC-5/9/10) — all built PARAMETRIZED over the strategy flag (M1 decision stays deferred).
+
+## Iteration 3+ — ALL autonomous code COMPLETE (18/26 stories pass)
+- US-012 ✅ (covered by US-007 parametrized enter, AC-1 39ms; chosen-scheme deferred to user M1 gate)
+- US-013 ✅ production ExitPlanMode parse+fallback — 38/38; AC-2/AC-7 hard 100% pass/fail across all malformed classes
+- US-015 ✅ deny-envelope serialization + baseRevision race guard — 31/31; AC-5/9/10
+- US-016 ✅ React block editor all 7 v1 kinds — 5/5 build test, tsc clean, AC-8
+- US-017 ✅ FeedbackEnvelope emission from SPA — 12/12; AC-9 validates vs canonical schema
+- US-018 ✅ structural diff engine (LCS-relative-order moves) — 12/12; AC-14
+- US-019 ✅ re-anchoring fallback + decoy guard — 11/11; false-attach rate 0; AC-13
+- US-014 ✅ full blocking round-trip — FOUND+FIXED real prod bug (bare-envelope POST silently dropped ops+race-guard); 6/6; AC-3/4/5
+- US-020 ✅ /planos-plan self-contained Socratic command — 25/25; AC-15/AC-17 no-external-skill
+- US-022 ✅ graceful interruption fallback — 17/17; AC-16 degradation
+- US-021 ✅ AC-16 canned handoff + AC-17 enforcement — 9/9 + 10/10; import-graph walker VERDICT CLEAN; runtime no-egress/no-spawn; allow/deny boundary doc
+- FINAL: 15 suites / 244 tests / 0 fail; npx tsc --noEmit 0 errors; one offline single-file plugin/dist/index.html; AC-17 walker CLEAN. Diagnostics clean (one TS false-positive on `require` in ac17-invariant.test.mjs — genuinely used at runtime L122/285-289).
+
+## TERMINAL CHECKPOINT — remaining 8 stories are FUNDAMENTALLY BLOCKED on the user's environment / live agent runs
+- US-006 plannotator coexistence spike — needs a live multi-plugin `claude` session to observe ExitPlanMode dispatch
+- US-010 forced-revise MEASUREMENT — ≥30 canned fixtures are autonomously buildable but the story is gated on ≥5 LIVE Claude Code agent runs through the real thin loop
+- US-011 Milestone 1 HARD GATE decision — needs the live ID-preservation numbers (frozen bars ≥95% / ≤2-iter ≥90%); explicit failure/escalation branch if neither scheme clears
+- US-023 full harness run — ≥5 live agent runs
+- US-024 verify FROZEN exit gate — needs live numbers
+- US-025 M5 handoff+degradation+offline gate — canned/offline parts proven (US-021/US-013); full gate needs live
+- US-026 live-session smoke — real Claude Code install/run (AC-20)
+- These require real model invocations + the user's Claude Code environment; they are the deliberate Phase-1 de-risking the consensus plan put in the USER's hands. Not autonomously completable. Per ralph Escalation_And_Stop_Conditions → terminal checkpoint, NOT /cancel (task genuinely incomplete; resumable via PRD + this log).
+
+### Handoff — exactly what the user must run
+1. `claude --plugin-dir ./apps/hook` equivalent here: `claude --plugin-dir ./plugin` — AC-20 live smoke + US-006 (install a 2nd ExitPlanMode plugin alongside, observe dispatch).
+2. Milestone 1 spike: with the thin loop built, run ≥30 canned + ≥5 LIVE forced-revise cycles per ID strategy (PLANOS_ID_STRATEGY=semantic-slug vs opaque), feed the harness (tests/harness/runner.mjs liveAgentDriver — currently an honest unwired stub; wiring it to a real `claude` invocation is the one remaining integration the user's env enables), record docs/adr/0001-block-id-scheme.md. If neither clears the frozen bars → Phase 1 FAILS, escalate (do NOT tune bars).
+
+## Iteration 4 — 2026-05-16 (RESUMED in a live-claude environment via /autopilot)
+- Environment now HAS the `claude` CLI (v2.1.143, node v24) → the 8 live-gated stories are executable. Baseline re-verified: full suite green, `npx tsc --noEmit` exit 0, AC-17 import-graph VERDICT CLEAN.
+- US-010 wiring DONE: `tests/harness/live-driver.mjs` (real EnterPlanMode ctx → real `claude -p` author → REAL src/hook/exit.mjs forced-revise w/ (id,kind,title) echo table → `claude -p --resume` revise → measure), `runner.mjs` mode:"live" populates group (iii) via injectable runLiveFixture, `tests/harness/run-live.mjs` billed out-of-band runner, `tests/live-driver.test.mjs` offline wiring proof (falsifier + degrade paths), result-shape.test.mjs scaffold-stub test superseded to the wired contract. `claude -p` + `--resume` session continuity verified.
+- 31 new forced-revise fixtures authored (feat-/refac-/invest-, 11+10+10) + example.fixture.json fixed (added meta.createdAt) → 32 total. fixture-format.md contract validated for all 32.
+- Live ID-preservation denominator (AC-12 spirit): frozen at AUTHOR time = ids the agent minted in its own author doc (the fixture's canned expectedPreservedIds cannot apply live — the live agent mints its own ids); preserved = authorIds ∩ revisedIds; pure set-intersection, zero runtime judgment; forced-revise feedback demands a structure/ID-preserving revision so "all author ids survive" is well-defined.
+- Offline gate groups (i)+(ii) PASS over 32 fixtures: (i) gracefulDegradation+offline true, egress 0; (ii) n=32, idPreservation 1.0 (≥0.95), convergence 1.0 (≥0.90), gateReady. firstTry 1.0 reported/not-gated. Full suite 28/28 pass after wiring; tsc 0; AC-17 CLEAN.
+- US-006 CC-dispatch research (documented): multi-plugin same-event hooks ALL fire in parallel (no first-wins/priority); bug #29724 dedups only byte-identical pre-expansion command templates (planos `bin/planos` ≠ plannotator → both fire); PermissionRequest reconciliation = deny-wins conjunction; PermissionRequest does NOT fire under `claude -p` (headless ExitPlanMode probe impossible — corroborate all-fire via UserPromptSubmit). Two stub plugins built (tests/spike/plugin-a bin/stuba, plugin-b bin/stub — distinct templates).
+- Live group (iii) COMPLETE: 6 fixtures × {semantic-slug, opaque} = 12 live forced-revise cycles through the real thin loop with a real `claude` agent. EVERY run: rate=1.000, valid, converged, firstTry=1.0; denominators 16–35 (real agent-authored docs); zero regressions. Raw: .omc/research/live-{semantic-slug,opaque}.json.
+- US-011 HARD GATE: both schemes cleared every FROZEN bar at the maximum (gate did not discriminate). Tie broken on residual-risk asymmetry → production default = `opaque` (rename-stable; its only theoretical weakness fully neutralised by the always-on §6.2 deny-echo table and empirically proven). semantic-slug retained as validated equal-merit alternative via PLANOS_ID_STRATEGY. Wired: src/schema/id-strategy.mjs PRODUCTION_DEFAULT_STRATEGY="opaque" (DEV_DEFAULT_STRATEGY back-compat alias); activeIdStrategy({})→opaque. ADR: docs/adr/0001-block-id-scheme.md. FROZEN_BARS untouched (asserted by tests/harness/verify-exit-gate.mjs). Failure branch NOT taken (both passed).
+- US-006 RESOLVED (descoped per explicit user decision: don't care about plannotator coexistence; refuse-on-collision is acceptable). docs/notes/plannotator-coexistence-spike.md documents CC dispatch semantics (all matching plugins fire in parallel; PermissionRequest=deny-wins; bug #29724 dedups only byte-identical pre-expansion templates — planos≠plannotator so both fire; PermissionRequest absent under `claude -p`) + the decided detect-and-refuse posture feeding Step 2-thin.2/2f.3. Stub plugins tests/spike/plugin-{a,b}. No claude spent on corroboration (not load-bearing for refuse). Saved to project memory.
+- US-023/US-024 (AC-18/AC-19): tests/harness/verify-exit-gate.mjs → PHASE 1 EXIT GATE: PASS. Three groups SEPARATE, no single number: (i) deterministic PASS; (ii) canned n=32 id=1.0 conv=1.0 PASS; (iii) live[opaque] runs=6 id=1.0 noRegression PASS (alt semantic-slug also PASS). first-try reported (canned=1, live=1), NOT gated. Bars asserted untampered. .omc/research/phase1-exit-gate.json.
+- US-025 (AC-16/AC-7/AC-19i): handoff.test.mjs + exit-production.test.mjs green; canned harness egress=0 + group(i) offline=true.
+- US-026 (AC-20): static — marketplace/plugin/hooks.json valid (96h timeout), 213KB offline single-file SPA (no external src), bin enter/exit dispatch OK. live — plugin loads cleanly in real `claude --plugin-dir ./plugin` (result READY, is_error=false). + one full author→forced-revise→revise→APPROVE→allow cycle through the real plugin modules (see below).
+- Regression after all wiring: full offline suite 28/28 pass, 0 fail; npx tsc --noEmit exit 0; AC-17 import-graph VERDICT CLEAN. New: tests/harness/live-driver.mjs, run-live.mjs, verify-exit-gate.mjs, tests/live-driver.test.mjs; result-shape scaffold-stub test superseded to wired contract; 31 new fixtures + example.fixture.json createdAt fix (32 total).
+- OUTCOME: Phase 1 make-or-break risk (design.md §6) FALSIFIED-CLEAR. All 26 stories pass. Phase 1 exit gate PASS. No escalation/failure branch taken.

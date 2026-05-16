@@ -1,0 +1,59 @@
+{
+  "name": "refac-01-monolith-to-modules",
+  "schemaVersion": 1,
+  "initialPrompt": "Our Rails monolith has grown to 400k lines and deploy times are hitting 45 minutes. I want to split it into independently deployable modules: start with the billing subsystem, then the notifications subsystem, and finally shared auth middleware that both can use. Each module should have its own database schema, its own CI pipeline, and clear API contracts with the rest of the monolith so we can strangle it over time.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-monolith-split",
+    "title": "Monolith → Modules split (billing, notifications, auth)",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-split", "kind": "objective", "text": "Extract billing and notifications into independently deployable modules with clear API contracts", "successCriteria": ["Each module deploys independently", "Monolith deploy time drops below 20 min", "Zero cross-module DB joins in production"] },
+      { "id": "task-audit-deps", "kind": "task", "title": "Audit cross-module dependency graph", "status": "todo", "deps": [], "acceptance": ["Dependency graph visualised", "Circular deps identified and documented"] },
+      { "id": "task-billing-extract", "kind": "task", "title": "Extract billing module with own DB schema", "status": "todo", "deps": ["task-audit-deps"], "acceptance": ["Billing service boots standalone", "All billing tests green", "REST contract published"] },
+      { "id": "task-notifications-extract", "kind": "task", "title": "Extract notifications module", "status": "todo", "deps": ["task-billing-extract"], "acceptance": ["Notifications service boots standalone", "Delivery confirmed via integration test"] },
+      { "id": "dec-comms-pattern", "kind": "decision", "question": "Inter-module communication: synchronous REST or async events?", "options": [{ "label": "Synchronous REST" }, { "label": "Async events via message bus" }], "chosen": "Async events via message bus", "rationale": "Decouples modules temporally; billing events trigger notifications naturally." },
+      { "id": "risk-data-migration", "kind": "risk", "description": "Splitting shared tables causes data migration failures in production", "likelihood": "H", "impact": "H", "mitigation": "Blue-green schema migration with read-replica validation before cutover" },
+      { "id": "oq-shared-auth", "kind": "openQuestion", "question": "Should shared auth middleware be a separate deployed service or a shared gem/package?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-monolith-split",
+    "title": "Monolith → Modules split (billing, notifications, auth)",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-split", "kind": "objective", "text": "Extract billing, notifications, and shared auth into independently deployable modules with explicit API contracts", "successCriteria": ["Each module deploys independently", "Monolith deploy time drops below 20 min", "Zero cross-module DB joins in production", "Shared auth library published as internal package"] },
+      { "id": "task-spike-strangler", "kind": "task", "title": "Spike: validate strangler-fig routing layer with production traffic sample", "status": "todo", "deps": [], "acceptance": ["Routing layer handles 1k req/s without latency regression", "Rollback path documented"] },
+      { "id": "task-audit-deps", "kind": "task", "title": "Audit cross-module dependency graph", "status": "todo", "deps": ["task-spike-strangler"], "acceptance": ["Dependency graph visualised", "Circular deps identified and documented"] },
+      { "id": "task-billing-extract", "kind": "task", "title": "Extract billing module with own DB schema", "status": "todo", "deps": ["task-audit-deps"], "acceptance": ["Billing service boots standalone", "All billing tests green", "REST contract published"] },
+      { "id": "task-notifications-extract", "kind": "task", "title": "Extract notifications module", "status": "todo", "deps": ["task-billing-extract"], "acceptance": ["Notifications service boots standalone", "Delivery confirmed via integration test"] },
+      { "id": "task-auth-package", "kind": "task", "title": "Extract shared auth as internal gem published to private registry", "status": "todo", "deps": ["task-audit-deps"], "acceptance": ["Gem installable from private registry", "Both billing and notifications modules use it"] },
+      { "id": "dec-comms-channel", "kind": "decision", "question": "Inter-module communication: synchronous REST or async events?", "options": [{ "label": "Synchronous REST" }, { "label": "Async events via message bus" }], "chosen": "Async events via message bus", "rationale": "Decouples modules temporally; billing events trigger notifications naturally." },
+      { "id": "risk-data-migration", "kind": "risk", "description": "Splitting shared tables causes data migration failures in production", "likelihood": "H", "impact": "H", "mitigation": "Blue-green schema migration with read-replica validation before cutover" },
+      { "id": "oq-auth-deploy", "kind": "openQuestion", "question": "Should shared auth middleware be a separate deployed service or a shared gem/package?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-split",
+    "task-audit-deps",
+    "task-billing-extract",
+    "task-notifications-extract",
+    "risk-data-migration"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-comms-pattern",
+    "newId": "dec-comms-channel",
+    "kind": "decision",
+    "note": "Same decision (REST vs async events) but the agent renamed the id from dec-comms-pattern to dec-comms-channel during revise. The intent is unchanged; the AC-13 re-anchoring fallback must map a comment on dec-comms-pattern to dec-comms-channel."
+  },
+  "decoy": {
+    "id": "task-auth-package",
+    "kind": "task",
+    "resemblesOldId": "task-notifications-extract",
+    "note": "Genuinely new block. Shares surface tokens 'extract' and 'module' with task-notifications-extract, making it a trap. A comment on task-notifications-extract must re-attach to task-notifications-extract, NOT to task-auth-package."
+  },
+  "notes": "Renumbering pressure: a spike task is inserted near top shifting task-audit-deps down by one position; a new task-auth-package block is added; dec-comms-pattern is renamed to dec-comms-channel; oq-shared-auth is renamed to oq-auth-deploy. Positional scheme loses alignment after the spike insertion. expectedPreservedIds excludes dec-comms-pattern (id changed) and oq-shared-auth (id changed) and the two new tasks."
+}

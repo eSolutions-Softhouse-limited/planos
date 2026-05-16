@@ -1,0 +1,63 @@
+{
+  "name": "feat-06-search-filters",
+  "schemaVersion": 1,
+  "initialPrompt": "The search results page is a dump of everything. Users need to narrow things down. I want: faceted filters in a sidebar (category, date range, status, tags), URL-based filter state so links are shareable, an active-filter chip row above results showing what's applied with individual remove buttons, and a saved-search feature so users can bookmark their common filter combinations. Also make sure the filter UI works on mobile without a sidebar.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-search-filters",
+    "title": "Faceted search filters with saved searches",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-filters", "kind": "objective", "text": "Let users narrow search results to exactly the items they want and share or save those filters", "successCriteria": ["filter state survives page refresh via URL params", "saved searches accessible in one click", "filter UI usable on mobile viewport"] },
+      { "id": "dec-filter-state", "kind": "decision", "question": "How should filter state be stored and shared?", "options": [{ "label": "URL query params" }, { "label": "Local storage" }], "chosen": "URL query params", "rationale": "Enables shareable links without server-side session; back button works naturally." },
+      { "id": "task-filter-sidebar", "kind": "task", "title": "Build faceted filter sidebar (category, date range, status, tags)", "status": "todo", "deps": [], "acceptance": ["each facet shows counts", "multi-select within facet supported", "sidebar collapses to sheet on mobile"] },
+      { "id": "task-url-state", "kind": "task", "title": "Sync filter state to URL query params (bidirectional)", "status": "todo", "deps": ["task-filter-sidebar"], "acceptance": ["filter changes update URL without page reload", "loading a URL restores filter state", "back/forward navigation works"] },
+      { "id": "task-chip-row", "kind": "task", "title": "Build active-filter chip row above results", "status": "todo", "deps": ["task-filter-sidebar"], "acceptance": ["one chip per active filter", "clicking chip removes that filter", "Clear All button removes all filters"] },
+      { "id": "task-saved-searches", "kind": "task", "title": "Implement saved-search feature (bookmark filter combinations)", "status": "todo", "deps": ["task-url-state"], "acceptance": ["user can name and save current filters", "saved searches listed in sidebar", "loading saved search restores all filters"] },
+      { "id": "risk-url-length", "kind": "risk", "description": "Many simultaneous filters could exceed browser URL length limits", "likelihood": "L", "impact": "M", "mitigation": "Compress filter params; fall back to server-side session token for large states" },
+      { "id": "oq-tag-taxonomy", "kind": "openQuestion", "question": "Are tags free-form user input or from a controlled vocabulary, and who manages them?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-search-filters",
+    "title": "Faceted search filters with saved searches",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-filters", "kind": "objective", "text": "Let users narrow search results to exactly the items they want and share or save those filters", "successCriteria": ["filter state survives page refresh via URL params", "saved searches accessible in one click", "filter UI usable on mobile viewport"] },
+      { "id": "task-filter-data-api", "kind": "task", "title": "Build filter data API (facet counts, tag taxonomy endpoint)", "status": "todo", "deps": [], "acceptance": ["returns facet counts per filter type", "tag list endpoint paginated", "response cached 60 s"] },
+      { "id": "dec-filter-state", "kind": "decision", "question": "How should filter state be stored and shared?", "options": [{ "label": "URL query params" }, { "label": "Local storage" }], "chosen": "URL query params", "rationale": "Enables shareable links without server-side session; back button works naturally." },
+      { "id": "task-filter-sidebar", "kind": "task", "title": "Build faceted filter sidebar (category, date range, status, tags)", "status": "todo", "deps": ["task-filter-data-api"], "acceptance": ["each facet shows counts", "multi-select within facet supported", "sidebar collapses to sheet on mobile"] },
+      { "id": "task-url-state", "kind": "task", "title": "Sync filter state to URL query params (bidirectional)", "status": "todo", "deps": ["task-filter-sidebar"], "acceptance": ["filter changes update URL without page reload", "loading a URL restores filter state", "back/forward navigation works"] },
+      { "id": "task-chip-row", "kind": "task", "title": "Build active-filter chip row above results", "status": "todo", "deps": ["task-filter-sidebar"], "acceptance": ["one chip per active filter", "clicking chip removes that filter", "Clear All button removes all filters"] },
+      { "id": "task-saved-searches", "kind": "task", "title": "Implement saved-search feature (bookmark filter combinations)", "status": "todo", "deps": ["task-url-state"], "acceptance": ["user can name and save current filters", "saved searches listed in sidebar", "loading saved search restores all filters"] },
+      { "id": "task-mobile-filter-sheet", "kind": "task", "title": "Build mobile filter bottom sheet with apply/cancel controls", "status": "todo", "deps": ["task-filter-sidebar"], "acceptance": ["sheet opens from filter button on mobile", "changes applied only on 'Apply' tap", "cancel reverts to previous state"] },
+      { "id": "risk-url-length-v2", "kind": "risk", "description": "Many simultaneous filters or long tag strings could exceed browser URL length limits", "likelihood": "L", "impact": "M", "mitigation": "Compress filter params; fall back to server-side session token for large states" },
+      { "id": "oq-tag-taxonomy", "kind": "openQuestion", "question": "Are tags free-form user input or from a controlled vocabulary, and who manages them?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-filters",
+    "dec-filter-state",
+    "task-filter-sidebar",
+    "task-url-state",
+    "task-chip-row",
+    "task-saved-searches",
+    "oq-tag-taxonomy"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-url-length",
+    "newId": "risk-url-length-v2",
+    "kind": "risk",
+    "note": "Same risk (URL length limits) but description slightly expanded in revision; id changed. AC-13 fallback must map risk-url-length to risk-url-length-v2."
+  },
+  "decoy": {
+    "id": "task-mobile-filter-sheet",
+    "kind": "task",
+    "resemblesOldId": "task-filter-sidebar",
+    "note": "Genuinely-new block. Shares surface tokens 'filter' and 'mobile' with task-filter-sidebar. A comment on task-filter-sidebar must re-attach to task-filter-sidebar (id preserved), NOT this new mobile sheet task."
+  },
+  "notes": "Renumbering pressure: task-filter-data-api inserted second (shifts all positions); task-mobile-filter-sheet added; risk-url-length id changed. Naive positional scheme loses alignment at task-filter-sidebar onward. Denominator is 7."
+}

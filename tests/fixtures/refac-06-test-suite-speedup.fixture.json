@@ -1,0 +1,60 @@
+{
+  "name": "refac-06-test-suite-speedup",
+  "schemaVersion": 1,
+  "initialPrompt": "Our CI test suite takes 38 minutes to run and is blocking PRs. We have 4,200 tests in Jest, a lot of which hit a real Postgres database, and almost no parallelisation. I need: a plan to get it under 8 minutes, a strategy for replacing real-DB tests with in-memory fakes where it makes sense, and a way to identify and fix the top 20 slowest individual tests.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-test-speedup",
+    "title": "Test suite speedup: 38 min → 8 min target",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-ci-speed", "kind": "objective", "text": "Reduce CI test suite runtime from 38 minutes to under 8 minutes without reducing coverage", "successCriteria": ["P95 CI runtime under 8 minutes", "Coverage stays at or above current baseline", "Top 20 slowest tests identified and fixed"] },
+      { "id": "task-profile-suite", "kind": "task", "title": "Profile test suite to find slowest tests and hotspots", "status": "todo", "deps": [], "acceptance": ["Jest --verbose timing output captured", "Top 20 slowest tests listed with timings"] },
+      { "id": "task-parallelise", "kind": "task", "title": "Enable Jest --maxWorkers and shard across CI runners", "status": "todo", "deps": ["task-profile-suite"], "acceptance": ["Tests sharded across 4 runners", "No test ordering dependencies broken"] },
+      { "id": "task-db-fakes", "kind": "task", "title": "Replace real-DB tests with in-memory fakes where semantics allow", "status": "todo", "deps": ["task-profile-suite"], "acceptance": ["At least 40% of DB integration tests replaced by fakes", "Fake implementation documented"] },
+      { "id": "task-fix-slow-tests", "kind": "task", "title": "Fix the top 20 slowest individual tests", "status": "todo", "deps": ["task-profile-suite"], "acceptance": ["Each of the top 20 tests under 500ms", "Root cause documented per test"] },
+      { "id": "dec-fake-strategy", "kind": "decision", "question": "Use pg-mem for in-memory Postgres faking or switch to SQLite for test runs?", "options": [{ "label": "pg-mem in-memory Postgres" }, { "label": "SQLite for test runs" }], "chosen": "pg-mem in-memory Postgres", "rationale": "pg-mem preserves SQL dialect fidelity; SQLite divergences cause false negatives." },
+      { "id": "risk-flaky-parallel", "kind": "risk", "description": "Parallelising tests may expose shared-state flakiness not visible in serial runs", "likelihood": "M", "impact": "M", "mitigation": "Run parallel suite in quarantine branch first; promote only after 5 green runs" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-test-speedup",
+    "title": "Test suite speedup: 38 min → 8 min target",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-ci-speed", "kind": "objective", "text": "Reduce CI test suite runtime from 38 minutes to under 8 minutes without reducing coverage or increasing flakiness", "successCriteria": ["P95 CI runtime under 8 minutes", "Coverage stays at or above current baseline", "Top 20 slowest tests identified and fixed", "Flakiness rate stays below 0.5%"] },
+      { "id": "task-flakiness-baseline", "kind": "task", "title": "Record current flakiness rate before any parallelisation changes", "status": "todo", "deps": [], "acceptance": ["Flakiness rate measured over 20 CI runs", "Baseline stored for regression comparison"] },
+      { "id": "task-profile-suite", "kind": "task", "title": "Profile test suite to find slowest tests and hotspots", "status": "todo", "deps": ["task-flakiness-baseline"], "acceptance": ["Jest --verbose timing output captured", "Top 20 slowest tests listed with timings"] },
+      { "id": "task-parallelise", "kind": "task", "title": "Enable Jest --maxWorkers and shard across CI runners", "status": "todo", "deps": ["task-profile-suite"], "acceptance": ["Tests sharded across 4 runners", "No test ordering dependencies broken"] },
+      { "id": "task-db-fakes", "kind": "task", "title": "Replace real-DB tests with in-memory fakes where semantics allow", "status": "todo", "deps": ["task-profile-suite"], "acceptance": ["At least 40% of DB integration tests replaced by fakes", "Fake implementation documented"] },
+      { "id": "task-fix-slow-tests", "kind": "task", "title": "Fix the top 20 slowest individual tests", "status": "todo", "deps": ["task-profile-suite"], "acceptance": ["Each of the top 20 tests under 500ms", "Root cause documented per test"] },
+      { "id": "task-test-timing-ci", "kind": "task", "title": "Publish per-test timing report as CI artifact on every run", "status": "todo", "deps": ["task-parallelise"], "acceptance": ["Timing artifact published to CI", "Slowest-test trend dashboard linked from repo README"] },
+      { "id": "dec-fake-lib", "kind": "decision", "question": "Use pg-mem for in-memory Postgres faking or switch to SQLite for test runs?", "options": [{ "label": "pg-mem in-memory Postgres" }, { "label": "SQLite for test runs" }], "chosen": "pg-mem in-memory Postgres", "rationale": "pg-mem preserves SQL dialect fidelity; SQLite divergences cause false negatives." },
+      { "id": "risk-flaky-parallel", "kind": "risk", "description": "Parallelising tests may expose shared-state flakiness not visible in serial runs", "likelihood": "M", "impact": "M", "mitigation": "Run parallel suite in quarantine branch first; promote only after 5 green runs" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-ci-speed",
+    "task-profile-suite",
+    "task-parallelise",
+    "task-db-fakes",
+    "task-fix-slow-tests",
+    "risk-flaky-parallel"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-fake-strategy",
+    "newId": "dec-fake-lib",
+    "kind": "decision",
+    "note": "Same decision about pg-mem vs SQLite, but the id changed from dec-fake-strategy to dec-fake-lib. AC-13 must map comments from dec-fake-strategy to dec-fake-lib."
+  },
+  "decoy": {
+    "id": "task-test-timing-ci",
+    "kind": "task",
+    "resemblesOldId": "task-profile-suite",
+    "note": "Genuinely new block. Shares surface tokens 'timing', 'test', and 'CI' with task-profile-suite. A comment on task-profile-suite must stay on task-profile-suite, not migrate to task-test-timing-ci."
+  },
+  "notes": "Renumbering pressure: task-flakiness-baseline inserted at position 1 shifts all subsequent tasks; task-test-timing-ci inserted before dec block; dec-fake-strategy renamed to dec-fake-lib. Positional scheme loses alignment after leading task insertion."
+}

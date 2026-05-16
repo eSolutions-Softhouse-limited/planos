@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+// planos CLI dispatcher — zero external dependencies.
+// ES module: uses import.meta.url for path resolution so the binary works
+// regardless of the working directory.
+
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const subcommand = process.argv[2];
+
+// Route
+if (!subcommand) {
+  process.stderr.write('Usage: planos <subcommand>\nSubcommands: enter, exit\n');
+  process.exit(1);
+}
+
+switch (subcommand) {
+  case 'enter': {
+    const { handleEnter } = await import(
+      resolve(__dirname, '../../src/hook/enter.mjs')
+    );
+    await handleEnter();
+    break;
+  }
+
+  case 'exit': {
+    const { handleExit } = await import(
+      resolve(__dirname, '../../src/hook/exit.mjs')
+    );
+    await handleExit();
+    break;
+  }
+
+  default: {
+    process.stdout.write('[planos unknown command: ' + subcommand + ' stub]\n');
+    process.exit(0);
+  }
+}

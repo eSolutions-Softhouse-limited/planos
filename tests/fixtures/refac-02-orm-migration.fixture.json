@@ -1,0 +1,60 @@
+{
+  "name": "refac-02-orm-migration",
+  "schemaVersion": 1,
+  "initialPrompt": "We're migrating from Sequelize to Prisma across our entire Node.js backend. We have about 60 models, complex associations (polymorphic, many-to-many with junction tables), and raw SQL queries sprinkled everywhere. I need: a migration plan that keeps the app running during cutover, a strategy for the raw SQL queries, and a way to validate that query results are identical before we turn off Sequelize completely.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-orm-migration",
+    "title": "Sequelize → Prisma migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-orm", "kind": "objective", "text": "Migrate all 60 Sequelize models to Prisma with zero downtime and validated query parity", "successCriteria": ["All models have Prisma equivalents", "Raw SQL queries catalogued and ported", "Shadow-mode comparison passes for 7 days before cutover"] },
+      { "id": "dec-migration-approach", "kind": "decision", "question": "Migrate all models at once (big-bang) or incrementally per domain?", "options": [{ "label": "Big-bang" }, { "label": "Incremental per domain" }], "chosen": "Incremental per domain", "rationale": "Reduces blast radius; each domain can be validated independently." },
+      { "id": "task-schema-gen", "kind": "task", "title": "Generate initial Prisma schema from existing DB", "status": "todo", "deps": [], "acceptance": ["prisma db pull succeeds", "All 60 models represented in schema.prisma"] },
+      { "id": "task-raw-sql-audit", "kind": "task", "title": "Audit and catalogue all raw SQL query sites", "status": "todo", "deps": [], "acceptance": ["Spreadsheet of all raw SQL with file:line references", "Each query classified: portable / Prisma-native / requires-wrapper"] },
+      { "id": "task-shadow-mode", "kind": "task", "title": "Build shadow-mode comparison harness", "status": "todo", "deps": ["task-schema-gen"], "acceptance": ["Harness runs both ORMs for same request", "Result diff logged and alerted on mismatch"] },
+      { "id": "risk-polymorphic", "kind": "risk", "description": "Polymorphic associations have no direct Prisma equivalent", "likelihood": "H", "impact": "M", "mitigation": "Model as union types; wrap in repository layer to hide complexity" },
+      { "id": "oq-junction-tables", "kind": "openQuestion", "question": "Do our many-to-many junction tables have extra columns that Prisma implicit m2m can't represent?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-orm-migration",
+    "title": "Sequelize → Prisma migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "s-overview", "kind": "section", "title": "Migration Overview", "level": 1 },
+      { "id": "obj-orm", "kind": "objective", "text": "Migrate all 60 Sequelize models to Prisma with zero downtime and validated query parity", "successCriteria": ["All models have Prisma equivalents", "Raw SQL queries catalogued and ported", "Shadow-mode comparison passes for 7 days before cutover"] },
+      { "id": "dec-migration-approach", "kind": "decision", "question": "Migrate all models at once (big-bang) or incrementally per domain?", "options": [{ "label": "Big-bang" }, { "label": "Incremental per domain" }], "chosen": "Incremental per domain", "rationale": "Reduces blast radius; each domain can be validated independently." },
+      { "id": "task-schema-gen", "kind": "task", "title": "Generate initial Prisma schema from existing DB", "status": "todo", "deps": [], "acceptance": ["prisma db pull succeeds", "All 60 models represented in schema.prisma"] },
+      { "id": "task-raw-sql-audit", "kind": "task", "title": "Audit and catalogue all raw SQL query sites", "status": "todo", "deps": [], "acceptance": ["Spreadsheet of all raw SQL with file:line references", "Each query classified: portable / Prisma-native / requires-wrapper"] },
+      { "id": "task-shadow-mode", "kind": "task", "title": "Build shadow-mode comparison harness", "status": "todo", "deps": ["task-schema-gen"], "acceptance": ["Harness runs both ORMs for same request", "Result diff logged and alerted on mismatch"] },
+      { "id": "task-poly-repo-layer", "kind": "task", "title": "Implement repository layer for polymorphic associations", "status": "todo", "deps": ["task-schema-gen"], "acceptance": ["All polymorphic queries routed through repository", "Unit tests cover all association types"] },
+      { "id": "risk-polymorphic", "kind": "risk", "description": "Polymorphic associations have no direct Prisma equivalent", "likelihood": "H", "impact": "M", "mitigation": "Model as union types; wrap in repository layer to hide complexity" },
+      { "id": "oq-m2m-extras", "kind": "openQuestion", "question": "Do our many-to-many junction tables have extra columns that Prisma implicit m2m can't represent?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-orm",
+    "dec-migration-approach",
+    "task-schema-gen",
+    "task-raw-sql-audit",
+    "task-shadow-mode",
+    "risk-polymorphic"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-junction-tables",
+    "newId": "oq-m2m-extras",
+    "kind": "openQuestion",
+    "note": "Same question about extra columns on junction tables, but the agent shortened the id from oq-junction-tables to oq-m2m-extras. AC-13 re-anchoring must map comments from oq-junction-tables to oq-m2m-extras."
+  },
+  "decoy": {
+    "id": "task-poly-repo-layer",
+    "kind": "task",
+    "resemblesOldId": "task-raw-sql-audit",
+    "note": "Genuinely new block. Shares surface tokens 'query' and 'repository' with task-raw-sql-audit. A comment on task-raw-sql-audit must stay on task-raw-sql-audit, not migrate to task-poly-repo-layer."
+  },
+  "notes": "Renumbering pressure: a new section block is inserted at position 0, shifting all subsequent blocks by one positional index; a new task-poly-repo-layer block is inserted; oq-junction-tables is renamed to oq-m2m-extras. Positional scheme loses all alignment after the leading section insertion."
+}

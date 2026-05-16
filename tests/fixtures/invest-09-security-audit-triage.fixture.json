@@ -1,0 +1,60 @@
+{
+  "name": "invest-09-security-audit-triage",
+  "schemaVersion": 1,
+  "initialPrompt": "Our annual third-party security audit came back with 47 findings ranging from critical to informational. We need to triage and remediate these systematically without stopping feature work entirely. I need a plan to: classify findings by exploitability and business impact, fix all critical and high findings within 30 days, establish a process for medium and low findings, and set up automated scanning so we catch new vulnerabilities before the next audit.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-security-audit-triage",
+    "title": "Security audit triage and systematic remediation",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-security-remediation", "kind": "objective", "text": "Remediate all critical/high audit findings within 30 days and establish continuous vulnerability scanning", "successCriteria": ["zero open critical findings after 30 days", "all high findings fixed or formally risk-accepted", "automated scanner runs on every PR"] },
+      { "id": "task-triage-matrix", "kind": "task", "title": "Build triage matrix: score each finding by CVSS, exploitability, and data exposure", "status": "todo", "deps": [], "acceptance": ["all 47 findings scored", "priority tier (P0/P1/P2/P3) assigned to each"] },
+      { "id": "task-fix-criticals", "kind": "task", "title": "Fix all P0 critical findings with immediate hotfixes", "status": "todo", "deps": ["task-triage-matrix"], "acceptance": ["each critical finding has a merged fix", "auditor confirmation of closure for each"] },
+      { "id": "dec-risk-acceptance", "kind": "decision", "question": "For high findings that cannot be fixed within 30 days, should we formally risk-accept or request extension?", "options": [{ "label": "Formal risk acceptance with CISO sign-off" }, { "label": "Request 30-day extension from auditor" }] },
+      { "id": "task-scanner-setup", "kind": "task", "title": "Set up automated SAST/DAST scanner (e.g. Semgrep + OWASP ZAP) in CI pipeline", "status": "todo", "deps": ["task-fix-criticals"], "acceptance": ["scanner runs on every PR", "findings above severity threshold block merge"] },
+      { "id": "risk-finding-regression", "kind": "risk", "description": "Fixed vulnerabilities re-introduced by future feature work without awareness", "likelihood": "M", "impact": "H", "mitigation": "Add security regression tests for each fixed critical; scanner blocks reintroduction" },
+      { "id": "oq-bug-bounty", "kind": "openQuestion", "question": "Should we launch a bug bounty program to get continuous external testing between formal audits?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-security-audit-triage",
+    "title": "Security audit triage and systematic remediation",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-security-remediation", "kind": "objective", "text": "Remediate all critical/high audit findings within 30 days and establish continuous vulnerability scanning", "successCriteria": ["zero open critical findings after 30 days", "all high findings fixed or formally risk-accepted", "automated scanner runs on every PR", "remediation status reported weekly to CISO"] },
+      { "id": "task-auditor-kickoff", "kind": "task", "title": "Hold kickoff with auditor to clarify ambiguous findings and confirm reproduction steps", "status": "todo", "deps": [], "acceptance": ["all 47 findings have clear reproduction steps", "auditor confirms severity ratings understood"] },
+      { "id": "task-triage-matrix", "kind": "task", "title": "Build triage matrix: score each finding by CVSS, exploitability, and data exposure", "status": "todo", "deps": ["task-auditor-kickoff"], "acceptance": ["all 47 findings scored", "priority tier (P0/P1/P2/P3) assigned to each"] },
+      { "id": "task-fix-criticals", "kind": "task", "title": "Fix all P0 critical findings with immediate hotfixes", "status": "todo", "deps": ["task-triage-matrix"], "acceptance": ["each critical finding has a merged fix", "auditor confirmation of closure for each"] },
+      { "id": "dec-risk-acceptance", "kind": "decision", "question": "For high findings that cannot be fixed within 30 days, should we formally risk-accept or request extension?", "options": [{ "label": "Formal risk acceptance with CISO sign-off" }, { "label": "Request 30-day extension from auditor" }], "chosen": "Formal risk acceptance with CISO sign-off", "rationale": "Extension delays close-out; risk acceptance is the standard process and keeps the timeline." },
+      { "id": "task-scanner-setup", "kind": "task", "title": "Set up automated SAST/DAST scanner (e.g. Semgrep + OWASP ZAP) in CI pipeline", "status": "todo", "deps": ["task-fix-criticals"], "acceptance": ["scanner runs on every PR", "findings above severity threshold block merge"] },
+      { "id": "task-remediation-report", "kind": "task", "title": "Publish weekly remediation status report for CISO and engineering leadership", "status": "todo", "deps": ["task-triage-matrix"], "acceptance": ["report template created", "first report sent within 3 days of triage completion"] },
+      { "id": "risk-finding-regression", "kind": "risk", "description": "Fixed vulnerabilities re-introduced by future feature work without awareness", "likelihood": "M", "impact": "H", "mitigation": "Add security regression tests for each fixed critical; scanner blocks reintroduction" },
+      { "id": "oq-bounty-program", "kind": "openQuestion", "question": "Should we launch a bug bounty program to get continuous external testing between formal audits?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-security-remediation",
+    "task-triage-matrix",
+    "task-fix-criticals",
+    "dec-risk-acceptance",
+    "task-scanner-setup",
+    "risk-finding-regression"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-bug-bounty",
+    "newId": "oq-bounty-program",
+    "kind": "openQuestion",
+    "note": "Same intent (bug bounty program consideration) but id renamed during revise. AC-13 re-anchoring maps a comment on oq-bug-bounty to oq-bounty-program."
+  },
+  "decoy": {
+    "id": "task-remediation-report",
+    "kind": "task",
+    "resemblesOldId": "task-triage-matrix",
+    "note": "Genuinely new block. Shares surface tokens 'remediation', 'triage', and 'CISO' with task-triage-matrix. A comment on task-triage-matrix must stay there, not mis-attach to task-remediation-report."
+  },
+  "notes": "Renumbering pressure: task-auditor-kickoff inserted near top; task-remediation-report added as genuinely new; oq-bug-bounty renamed. Positional shift after insertion breaks naive mapping for task-triage-matrix onward. expectedPreservedIds excludes renamed OQ and both new tasks."
+}

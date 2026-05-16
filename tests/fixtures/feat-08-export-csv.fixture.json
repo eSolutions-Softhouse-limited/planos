@@ -1,0 +1,63 @@
+{
+  "name": "feat-08-export-csv",
+  "schemaVersion": 1,
+  "initialPrompt": "Finance keeps asking us to export data and we keep doing it manually. I need a self-service export feature: users can export any of their data tables to CSV, choose which columns to include, apply the same filters they have active in the UI, and download immediately for small datasets or get an email link for large ones (async). Also support Excel (.xlsx) format and add an export history page showing past exports with re-download links.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-export-csv",
+    "title": "Self-service CSV/Excel export",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-export", "kind": "objective", "text": "Eliminate manual data exports by giving users a self-service CSV/Excel download", "successCriteria": ["small exports (<10 k rows) download in <5 s", "large exports delivered by email within 10 min", "export history retains links for 30 days"] },
+      { "id": "dec-async-threshold", "kind": "decision", "question": "At what row count should exports switch from synchronous to async?", "options": [{ "label": "10 000 rows" }, { "label": "50 000 rows" }], "chosen": "10 000 rows", "rationale": "Keeps sync response under 5 s on current hardware; easily tuned later." },
+      { "id": "task-export-ui", "kind": "task", "title": "Build export dialog (column picker, format selector, apply-filters toggle)", "status": "todo", "deps": [], "acceptance": ["all exportable columns listed with checkboxes", "CSV and XLSX format options", "active filters shown and toggleable"] },
+      { "id": "task-sync-export", "kind": "task", "title": "Implement synchronous export for small datasets", "status": "todo", "deps": ["task-export-ui"], "acceptance": ["response streams CSV/XLSX directly", "Content-Disposition header triggers download", "completes within 5 s for ≤10 k rows"] },
+      { "id": "task-async-export", "kind": "task", "title": "Implement async export job queue for large datasets", "status": "todo", "deps": ["task-export-ui"], "acceptance": ["job enqueued immediately", "email with download link sent on completion", "link expires after 30 days"] },
+      { "id": "task-export-history", "kind": "task", "title": "Build export history page with re-download links", "status": "todo", "deps": ["task-async-export"], "acceptance": ["lists all user exports with date, row count, format", "re-download available while link valid", "expired entries shown greyed out"] },
+      { "id": "risk-xlsx-memory", "kind": "risk", "description": "Generating large XLSX files in memory may OOM the export worker", "likelihood": "M", "impact": "H", "mitigation": "Stream rows to temp file on disk; use streaming XLSX writer library" },
+      { "id": "oq-column-permissions", "kind": "openQuestion", "question": "Should we restrict which columns are exportable based on the user's role?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-export-csv",
+    "title": "Self-service CSV/Excel export",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-export", "kind": "objective", "text": "Eliminate manual data exports by giving users a self-service CSV/Excel download", "successCriteria": ["small exports (<10 k rows) download in <5 s", "large exports delivered by email within 10 min", "export history retains links for 30 days"] },
+      { "id": "task-export-job-schema", "kind": "task", "title": "Design export job schema and queue infrastructure", "status": "todo", "deps": [], "acceptance": ["jobs table with status, format, filters, result URL", "queue worker process documented", "retry on transient failure"] },
+      { "id": "dec-async-threshold", "kind": "decision", "question": "At what row count should exports switch from synchronous to async?", "options": [{ "label": "10 000 rows" }, { "label": "50 000 rows" }], "chosen": "10 000 rows", "rationale": "Keeps sync response under 5 s on current hardware; easily tuned later." },
+      { "id": "task-export-ui", "kind": "task", "title": "Build export dialog (column picker, format selector, apply-filters toggle)", "status": "todo", "deps": [], "acceptance": ["all exportable columns listed with checkboxes", "CSV and XLSX format options", "active filters shown and toggleable"] },
+      { "id": "task-sync-export", "kind": "task", "title": "Implement synchronous export for small datasets", "status": "todo", "deps": ["task-export-ui", "task-export-job-schema"], "acceptance": ["response streams CSV/XLSX directly", "Content-Disposition header triggers download", "completes within 5 s for ≤10 k rows"] },
+      { "id": "task-async-export", "kind": "task", "title": "Implement async export job queue for large datasets", "status": "todo", "deps": ["task-export-ui", "task-export-job-schema"], "acceptance": ["job enqueued immediately", "email with download link sent on completion", "link expires after 30 days"] },
+      { "id": "task-export-history", "kind": "task", "title": "Build export history page with re-download links", "status": "todo", "deps": ["task-async-export"], "acceptance": ["lists all user exports with date, row count, format", "re-download available while link valid", "expired entries shown greyed out"] },
+      { "id": "task-xlsx-streaming-writer", "kind": "task", "title": "Integrate streaming XLSX writer to avoid OOM on large exports", "status": "todo", "deps": ["task-export-job-schema"], "acceptance": ["XLSX generated row-by-row to temp file", "peak memory stays under 256 MB for 500 k row export", "temp file cleaned up after upload to storage"] },
+      { "id": "risk-xlsx-memory-v2", "kind": "risk", "description": "Large XLSX generation may OOM export worker; streaming writer task added to address this", "likelihood": "L", "impact": "H", "mitigation": "Stream rows to temp file via streaming XLSX library; monitor peak RSS in staging" },
+      { "id": "oq-column-permissions", "kind": "openQuestion", "question": "Should we restrict which columns are exportable based on the user's role?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-export",
+    "dec-async-threshold",
+    "task-export-ui",
+    "task-sync-export",
+    "task-async-export",
+    "task-export-history",
+    "oq-column-permissions"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-xlsx-memory",
+    "newId": "risk-xlsx-memory-v2",
+    "kind": "risk",
+    "note": "Same risk (OOM on large XLSX) but updated after streaming writer task added and likelihood downgraded; id changed. AC-13 fallback must map risk-xlsx-memory to risk-xlsx-memory-v2."
+  },
+  "decoy": {
+    "id": "task-xlsx-streaming-writer",
+    "kind": "task",
+    "resemblesOldId": "task-async-export",
+    "note": "Genuinely-new block. Shares surface tokens 'export' and 'async/large' with task-async-export. A comment on task-async-export must re-attach to task-async-export (id preserved), NOT this new streaming writer task."
+  },
+  "notes": "Renumbering pressure: task-export-job-schema inserted second (shifts all subsequent positions); task-xlsx-streaming-writer added; risk-xlsx-memory id changed. Naive positional scheme loses alignment at task-export-ui onward. Denominator is 7."
+}

@@ -1,0 +1,60 @@
+{
+  "name": "invest-04-queue-tech-choice",
+  "schemaVersion": 1,
+  "initialPrompt": "We need to add async job processing to our platform — things like sending emails, resizing images, and running nightly reports. Right now everything is synchronous and it's blocking our web workers. I need a plan to: evaluate and pick a queue technology (we're considering Redis-backed BullMQ, RabbitMQ, and SQS), design the job schema and retry/dead-letter strategy, and migrate the first two existing synchronous flows to use the queue.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-queue-tech-choice",
+    "title": "Async job queue: technology selection and initial migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-async-jobs", "kind": "objective", "text": "Offload blocking work from web workers to a reliable async job queue", "successCriteria": ["web worker p99 response time drops by 40%", "zero silent job loss — all failures land in DLQ", "email and image-resize flows migrated"] },
+      { "id": "dec-queue-tech", "kind": "decision", "question": "Which queue technology should we adopt — BullMQ, RabbitMQ, or SQS?", "options": [{ "label": "BullMQ (Redis)" }, { "label": "RabbitMQ" }, { "label": "AWS SQS" }] },
+      { "id": "task-spike-queues", "kind": "task", "title": "Spike: benchmark all three queue options under 10k jobs/min load", "status": "todo", "deps": [], "acceptance": ["throughput, latency, and ops burden documented", "recommendation written up"] },
+      { "id": "task-job-schema", "kind": "task", "title": "Design job envelope schema: type, payload, retryPolicy, idempotencyKey", "status": "todo", "deps": ["task-spike-queues"], "acceptance": ["JSON schema checked in", "idempotency strategy documented"] },
+      { "id": "task-migrate-email", "kind": "task", "title": "Migrate synchronous email dispatch to queue-backed worker", "status": "todo", "deps": ["task-job-schema"], "acceptance": ["email dispatch non-blocking in web process", "delivery confirmed via webhook in staging"] },
+      { "id": "risk-redis-single-point", "kind": "risk", "description": "BullMQ depends on Redis availability; Redis outage stops all job processing", "likelihood": "L", "impact": "H", "mitigation": "Run Redis in sentinel or cluster mode; implement circuit breaker" },
+      { "id": "oq-dlq-alerting", "kind": "openQuestion", "question": "Who gets paged when a job lands in the dead-letter queue — on-call engineer or the owning team?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-queue-tech-choice",
+    "title": "Async job queue: technology selection and initial migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-async-jobs", "kind": "objective", "text": "Offload blocking work from web workers to a reliable async job queue", "successCriteria": ["web worker p99 response time drops by 40%", "zero silent job loss — all failures land in DLQ", "email and image-resize flows migrated", "queue depth alert fires within 2 min of backlog growth"] },
+      { "id": "task-requirements-matrix", "kind": "task", "title": "Document requirements matrix: throughput, ordering, at-least-once vs exactly-once, ops burden", "status": "todo", "deps": [], "acceptance": ["matrix shared with team and signed off", "ordering and delivery guarantees confirmed per job type"] },
+      { "id": "dec-queue-tech", "kind": "decision", "question": "Which queue technology should we adopt — BullMQ, RabbitMQ, or SQS?", "options": [{ "label": "BullMQ (Redis)" }, { "label": "RabbitMQ" }, { "label": "AWS SQS" }], "chosen": "BullMQ (Redis)", "rationale": "We already run Redis; BullMQ has the best Node.js DX and handles our throughput easily." },
+      { "id": "task-spike-queues", "kind": "task", "title": "Spike: benchmark all three queue options under 10k jobs/min load", "status": "todo", "deps": ["task-requirements-matrix"], "acceptance": ["throughput, latency, and ops burden documented", "recommendation written up"] },
+      { "id": "task-job-schema", "kind": "task", "title": "Design job envelope schema: type, payload, retryPolicy, idempotencyKey", "status": "todo", "deps": ["task-spike-queues"], "acceptance": ["JSON schema checked in", "idempotency strategy documented"] },
+      { "id": "task-migrate-email", "kind": "task", "title": "Migrate synchronous email dispatch to queue-backed worker", "status": "todo", "deps": ["task-job-schema"], "acceptance": ["email dispatch non-blocking in web process", "delivery confirmed via webhook in staging"] },
+      { "id": "task-migrate-image-resize", "kind": "task", "title": "Migrate image resize to queue-backed worker", "status": "todo", "deps": ["task-job-schema"], "acceptance": ["resize job enqueued from upload handler", "resized image available within 30 s in staging"] },
+      { "id": "risk-redis-single-point", "kind": "risk", "description": "BullMQ depends on Redis availability; Redis outage stops all job processing", "likelihood": "L", "impact": "H", "mitigation": "Run Redis in sentinel or cluster mode; implement circuit breaker" },
+      { "id": "oq-dlq-ownership", "kind": "openQuestion", "question": "Who gets paged when a job lands in the dead-letter queue — on-call engineer or the owning team?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-async-jobs",
+    "dec-queue-tech",
+    "task-spike-queues",
+    "task-job-schema",
+    "task-migrate-email",
+    "risk-redis-single-point"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-dlq-alerting",
+    "newId": "oq-dlq-ownership",
+    "kind": "openQuestion",
+    "note": "Same intent (DLQ alerting ownership) but id renamed. AC-13 re-anchoring must map a comment on oq-dlq-alerting to oq-dlq-ownership."
+  },
+  "decoy": {
+    "id": "task-migrate-image-resize",
+    "kind": "task",
+    "resemblesOldId": "task-migrate-email",
+    "note": "Genuinely new block. Shares surface tokens 'migrate' and 'queue-backed worker' with task-migrate-email. A comment on task-migrate-email must stay on task-migrate-email, not mis-attach here."
+  },
+  "notes": "Renumbering pressure: task-requirements-matrix inserted near top; task-migrate-image-resize appended as genuinely new; oq-dlq-alerting renamed. Positional shift after insertion breaks naive positional mapping for dec-queue-tech onward. expectedPreservedIds excludes renamed OQ and two new tasks."
+}

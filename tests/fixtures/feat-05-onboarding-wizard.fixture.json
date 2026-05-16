@@ -1,0 +1,63 @@
+{
+  "name": "feat-05-onboarding-wizard",
+  "schemaVersion": 1,
+  "initialPrompt": "New user activation is terrible — people sign up and never do anything. I want a multi-step onboarding wizard that guides users through: setting up their profile, connecting their first integration, creating their first project, and inviting a teammate. The wizard should be skippable but resumable. Show a progress checklist in the sidebar that persists until all steps are done. Track completion events so we can measure where people drop off.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-onboarding-wizard",
+    "title": "Multi-step onboarding wizard",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-onboarding", "kind": "objective", "text": "Increase new user activation rate by guiding users to their first meaningful action", "successCriteria": ["activation rate (first project created) improves ≥15%", "wizard completion tracked per step in analytics", "wizard resumable after skip"] },
+      { "id": "task-wizard-flow", "kind": "task", "title": "Build multi-step onboarding wizard (profile → integration → project → invite)", "status": "todo", "deps": [], "acceptance": ["each step has back/next/skip controls", "progress persists across page reloads", "completion state stored per user"] },
+      { "id": "task-sidebar-checklist", "kind": "task", "title": "Add persistent onboarding checklist in sidebar", "status": "todo", "deps": ["task-wizard-flow"], "acceptance": ["checklist visible until all steps complete", "completed steps shown with checkmark", "clicking step resumes wizard at that step"] },
+      { "id": "task-analytics-events", "kind": "task", "title": "Instrument wizard steps with analytics events", "status": "todo", "deps": ["task-wizard-flow"], "acceptance": ["step_started and step_completed events fired", "skip events tracked with step name", "funnel visible in analytics dashboard"] },
+      { "id": "task-invite-teammate", "kind": "task", "title": "Build invite-a-teammate step with email invite", "status": "todo", "deps": ["task-wizard-flow"], "acceptance": ["invite sent via email", "invitee lands in same workspace", "step marked complete even if invite declined"] },
+      { "id": "dec-skip-behavior", "kind": "decision", "question": "Should skipping the wizard suppress it permanently or allow resuming later?", "options": [{ "label": "Suppress permanently" }, { "label": "Allow resuming via sidebar checklist" }], "chosen": "Allow resuming via sidebar checklist", "rationale": "Resumable is friendlier; checklist as re-entry point." },
+      { "id": "risk-wizard-fatigue", "kind": "risk", "description": "Users may skip all steps immediately if wizard feels too long", "likelihood": "H", "impact": "M", "mitigation": "Keep wizard to ≤4 steps; each step completable in under 2 minutes" },
+      { "id": "oq-integration-scope", "kind": "openQuestion", "question": "Which integrations should be available in the 'connect integration' onboarding step for v1?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-onboarding-wizard",
+    "title": "Multi-step onboarding wizard",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-onboarding", "kind": "objective", "text": "Increase new user activation rate by guiding users to their first meaningful action", "successCriteria": ["activation rate (first project created) improves ≥15%", "wizard completion tracked per step in analytics", "wizard resumable after skip"] },
+      { "id": "task-onboarding-state-model", "kind": "task", "title": "Design and implement onboarding state model (per-user progress record)", "status": "todo", "deps": [], "acceptance": ["state table stores step completion per user", "API endpoint to read/write state", "state survives re-login"] },
+      { "id": "task-wizard-flow", "kind": "task", "title": "Build multi-step onboarding wizard (profile → integration → project → invite)", "status": "todo", "deps": ["task-onboarding-state-model"], "acceptance": ["each step has back/next/skip controls", "progress persists across page reloads", "completion state stored per user"] },
+      { "id": "task-sidebar-checklist", "kind": "task", "title": "Add persistent onboarding checklist in sidebar", "status": "todo", "deps": ["task-wizard-flow"], "acceptance": ["checklist visible until all steps complete", "completed steps shown with checkmark", "clicking step resumes wizard at that step"] },
+      { "id": "task-analytics-events", "kind": "task", "title": "Instrument wizard steps with analytics events", "status": "todo", "deps": ["task-wizard-flow"], "acceptance": ["step_started and step_completed events fired", "skip events tracked with step name", "funnel visible in analytics dashboard"] },
+      { "id": "task-invite-teammate", "kind": "task", "title": "Build invite-a-teammate step with email invite", "status": "todo", "deps": ["task-wizard-flow"], "acceptance": ["invite sent via email", "invitee lands in same workspace", "step marked complete even if invite declined"] },
+      { "id": "dec-skip-behavior", "kind": "decision", "question": "Should skipping the wizard suppress it permanently or allow resuming later?", "options": [{ "label": "Suppress permanently" }, { "label": "Allow resuming via sidebar checklist" }], "chosen": "Allow resuming via sidebar checklist", "rationale": "Resumable is friendlier; checklist as re-entry point." },
+      { "id": "task-wizard-email-reminder", "kind": "task", "title": "Send reminder email to users who skip wizard without completing", "status": "todo", "deps": ["task-onboarding-state-model"], "acceptance": ["email sent 24 h after skip if activation incomplete", "email contains deep link back to wizard", "unsubscribe honoured"] },
+      { "id": "risk-wizard-fatigue-v2", "kind": "risk", "description": "Users may skip all steps immediately; email reminder risks feeling spammy", "likelihood": "H", "impact": "M", "mitigation": "Keep wizard to ≤4 steps; single reminder email with easy opt-out" },
+      { "id": "oq-integration-scope", "kind": "openQuestion", "question": "Which integrations should be available in the 'connect integration' onboarding step for v1?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-onboarding",
+    "task-wizard-flow",
+    "task-sidebar-checklist",
+    "task-analytics-events",
+    "task-invite-teammate",
+    "dec-skip-behavior",
+    "oq-integration-scope"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-wizard-fatigue",
+    "newId": "risk-wizard-fatigue-v2",
+    "kind": "risk",
+    "note": "Same risk (users skipping wizard) but description updated to cover email reminder risk added in revision; id changed. AC-13 fallback must map risk-wizard-fatigue to risk-wizard-fatigue-v2."
+  },
+  "decoy": {
+    "id": "task-wizard-email-reminder",
+    "kind": "task",
+    "resemblesOldId": "task-invite-teammate",
+    "note": "Genuinely-new block. Shares surface tokens 'email' and 'wizard' with task-invite-teammate. A comment on task-invite-teammate must re-attach to task-invite-teammate (id preserved), NOT this new reminder task."
+  },
+  "notes": "Renumbering pressure: task-onboarding-state-model inserted second (shifts all subsequent positions); task-wizard-email-reminder added; risk-wizard-fatigue id changed. Naive positional scheme loses alignment for task-wizard-flow onward. Denominator is 7."
+}

@@ -1,0 +1,63 @@
+{
+  "name": "feat-09-dark-mode",
+  "schemaVersion": 1,
+  "initialPrompt": "Half our users work at night and are begging for dark mode. I want: a system-preference-aware default (prefers-color-scheme), a manual toggle in the user settings, the preference synced to the user account so it roams across devices, and all existing UI components updated to support both themes. Make sure charts and images also work in dark mode. We use Tailwind so the implementation approach matters — figure out the right strategy.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-dark-mode",
+    "title": "Dark mode with system-preference detection",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-dark-mode", "kind": "objective", "text": "Deliver a polished dark mode that respects system preference and roams with the user account", "successCriteria": ["no flash of unstyled content on load", "preference synced across devices within 5 s", "all UI components pass WCAG AA contrast in both modes"] },
+      { "id": "dec-tailwind-strategy", "kind": "decision", "question": "Which Tailwind dark mode strategy: 'media' or 'class'?", "options": [{ "label": "media (prefers-color-scheme only)" }, { "label": "class (manual toggle via .dark on <html>)" }], "chosen": "class (manual toggle via .dark on <html>)", "rationale": "Class strategy allows manual override; media strategy does not." },
+      { "id": "task-theme-tokens", "kind": "task", "title": "Define dark-mode colour tokens and update Tailwind config", "status": "todo", "deps": [], "acceptance": ["all semantic colour tokens have dark variants", "tokens reviewed against WCAG AA", "Tailwind config updated with darkMode: 'class'"] },
+      { "id": "task-system-detection", "kind": "task", "title": "Implement system-preference detection and initial theme application", "status": "todo", "deps": ["task-theme-tokens"], "acceptance": ["prefers-color-scheme read on first load", "theme applied before first paint (no FOUC)", "SSR-safe implementation"] },
+      { "id": "task-manual-toggle", "kind": "task", "title": "Build manual dark/light/system toggle in user settings", "status": "todo", "deps": ["task-system-detection"], "acceptance": ["three-way toggle: light, dark, system", "preference saved to user account", "applies immediately without reload"] },
+      { "id": "task-component-audit", "kind": "task", "title": "Audit and update all UI components for dark mode", "status": "todo", "deps": ["task-theme-tokens"], "acceptance": ["all components in Storybook render correctly in dark mode", "no hardcoded hex/rgb colours remain", "charts use dark-safe palette"] },
+      { "id": "risk-fouc", "kind": "risk", "description": "Flash of unstyled content if theme class applied after first paint", "likelihood": "H", "impact": "M", "mitigation": "Inline blocking script in <head> reads localStorage and sets class before render" },
+      { "id": "oq-image-treatment", "kind": "openQuestion", "question": "Should images get a brightness/contrast CSS filter in dark mode, or do we curate dark variants for each?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-dark-mode",
+    "title": "Dark mode with system-preference detection",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-dark-mode", "kind": "objective", "text": "Deliver a polished dark mode that respects system preference and roams with the user account", "successCriteria": ["no flash of unstyled content on load", "preference synced across devices within 5 s", "all UI components pass WCAG AA contrast in both modes"] },
+      { "id": "task-theme-spike", "kind": "task", "title": "Spike: audit hardcoded colours and estimate component update effort", "status": "todo", "deps": [], "acceptance": ["count of components with hardcoded colours reported", "effort estimate in days", "list of charts requiring dark palette"] },
+      { "id": "dec-tailwind-strategy", "kind": "decision", "question": "Which Tailwind dark mode strategy: 'media' or 'class'?", "options": [{ "label": "media (prefers-color-scheme only)" }, { "label": "class (manual toggle via .dark on <html>)" }], "chosen": "class (manual toggle via .dark on <html>)", "rationale": "Class strategy allows manual override; media strategy does not." },
+      { "id": "task-theme-tokens", "kind": "task", "title": "Define dark-mode colour tokens and update Tailwind config", "status": "todo", "deps": ["task-theme-spike"], "acceptance": ["all semantic colour tokens have dark variants", "tokens reviewed against WCAG AA", "Tailwind config updated with darkMode: 'class'"] },
+      { "id": "task-system-detection", "kind": "task", "title": "Implement system-preference detection and initial theme application", "status": "todo", "deps": ["task-theme-tokens"], "acceptance": ["prefers-color-scheme read on first load", "theme applied before first paint (no FOUC)", "SSR-safe implementation"] },
+      { "id": "task-manual-toggle", "kind": "task", "title": "Build manual dark/light/system toggle in user settings", "status": "todo", "deps": ["task-system-detection"], "acceptance": ["three-way toggle: light, dark, system", "preference saved to user account", "applies immediately without reload"] },
+      { "id": "task-component-audit", "kind": "task", "title": "Audit and update all UI components for dark mode", "status": "todo", "deps": ["task-theme-tokens"], "acceptance": ["all components in Storybook render correctly in dark mode", "no hardcoded hex/rgb colours remain", "charts use dark-safe palette"] },
+      { "id": "task-dark-mode-e2e", "kind": "task", "title": "Add dark-mode visual regression tests", "status": "todo", "deps": ["task-component-audit"], "acceptance": ["screenshot tests for key pages in dark mode", "CI fails on regression", "baseline screenshots committed to repo"] },
+      { "id": "risk-fouc-v2", "kind": "risk", "description": "Flash of unstyled content if theme class applied after first paint; SSR complicates inline script approach", "likelihood": "H", "impact": "M", "mitigation": "Inline blocking script in <head>; verify SSR hydration does not override class before client JS runs" },
+      { "id": "oq-image-treatment", "kind": "openQuestion", "question": "Should images get a brightness/contrast CSS filter in dark mode, or do we curate dark variants for each?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-dark-mode",
+    "dec-tailwind-strategy",
+    "task-theme-tokens",
+    "task-system-detection",
+    "task-manual-toggle",
+    "task-component-audit",
+    "oq-image-treatment"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-fouc",
+    "newId": "risk-fouc-v2",
+    "kind": "risk",
+    "note": "Same risk (FOUC on theme load) but description expanded to cover SSR complexity; id changed. AC-13 fallback must map risk-fouc to risk-fouc-v2."
+  },
+  "decoy": {
+    "id": "task-dark-mode-e2e",
+    "kind": "task",
+    "resemblesOldId": "task-component-audit",
+    "note": "Genuinely-new block. Shares surface tokens 'dark mode' and 'component' with task-component-audit. A comment on task-component-audit must re-attach to task-component-audit (id preserved), NOT this new visual regression task."
+  },
+  "notes": "Renumbering pressure: task-theme-spike inserted second (shifts all subsequent positions); task-dark-mode-e2e added; risk-fouc id changed. Naive positional scheme loses alignment at task-theme-tokens onward. Denominator is 7."
+}

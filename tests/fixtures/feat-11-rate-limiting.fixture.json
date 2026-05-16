@@ -1,0 +1,63 @@
+{
+  "name": "feat-11-rate-limiting",
+  "schemaVersion": 1,
+  "initialPrompt": "We've had two incidents where a single customer hammered the API and degraded service for everyone else. I need rate limiting on our public API: per-API-key limits for standard operations, stricter limits on expensive endpoints (search, export, bulk operations), clear 429 responses with Retry-After headers, a self-service rate-limit status page for customers, and an internal dashboard for ops to view current usage and temporarily raise limits. Also add alerting when a key is consistently hitting its limit.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-rate-limiting",
+    "title": "API rate limiting with customer visibility",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-rate-limiting", "kind": "objective", "text": "Protect API stability under heavy load while giving customers clear visibility into their usage", "successCriteria": ["no single key can degrade service for others", "429 responses include Retry-After header", "ops can raise limits without a code deploy"] },
+      { "id": "dec-rate-limit-store", "kind": "decision", "question": "Where do we store rate-limit counters?", "options": [{ "label": "Redis with sliding window" }, { "label": "In-process memory (per instance)" }], "chosen": "Redis with sliding window", "rationale": "In-process counters break under horizontal scaling; Redis gives accurate cross-instance counts." },
+      { "id": "task-core-rate-limiter", "kind": "task", "title": "Implement core rate-limiter middleware (Redis sliding window)", "status": "todo", "deps": [], "acceptance": ["per-API-key limit enforced", "429 returned with Retry-After and X-RateLimit-* headers", "limit configurable per key without deploy"] },
+      { "id": "task-tiered-limits", "kind": "task", "title": "Configure tiered limits for expensive endpoints (search, export, bulk)", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["search endpoint has separate, lower limit", "export and bulk endpoints each have their own tier", "tiers documented in API docs"] },
+      { "id": "task-customer-status-page", "kind": "task", "title": "Build self-service rate-limit status page for customers", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["shows current window usage vs limit per tier", "resets-at timestamp displayed", "accessible from API key settings page"] },
+      { "id": "task-ops-dashboard", "kind": "task", "title": "Build internal ops dashboard for usage monitoring and limit overrides", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["top-N consumers shown in real-time", "ops can set temporary limit override per key", "override expires automatically"] },
+      { "id": "risk-redis-single-point", "kind": "risk", "description": "Redis unavailability would disable rate limiting entirely, allowing unconstrained traffic", "likelihood": "L", "impact": "H", "mitigation": "Fail open with conservative in-process fallback; alert on Redis connectivity loss" },
+      { "id": "oq-limit-defaults", "kind": "openQuestion", "question": "What should the default rate limits be for standard, search, and bulk tiers? Needs input from product and sales." }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-rate-limiting",
+    "title": "API rate limiting with customer visibility",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-rate-limiting", "kind": "objective", "text": "Protect API stability under heavy load while giving customers clear visibility into their usage", "successCriteria": ["no single key can degrade service for others", "429 responses include Retry-After header", "ops can raise limits without a code deploy"] },
+      { "id": "task-spike-redis-perf", "kind": "task", "title": "Spike: benchmark Redis sliding-window counter latency under peak load", "status": "todo", "deps": [], "acceptance": ["p99 counter increment latency measured under 10k req/s", "Redis cluster vs single-node comparison documented", "recommendation for Redis topology written up"] },
+      { "id": "dec-rate-limit-store", "kind": "decision", "question": "Where do we store rate-limit counters?", "options": [{ "label": "Redis with sliding window" }, { "label": "In-process memory (per instance)" }], "chosen": "Redis with sliding window", "rationale": "In-process counters break under horizontal scaling; Redis gives accurate cross-instance counts." },
+      { "id": "task-core-rate-limiter", "kind": "task", "title": "Implement core rate-limiter middleware (Redis sliding window)", "status": "todo", "deps": ["task-spike-redis-perf"], "acceptance": ["per-API-key limit enforced", "429 returned with Retry-After and X-RateLimit-* headers", "limit configurable per key without deploy"] },
+      { "id": "task-tiered-limits", "kind": "task", "title": "Configure tiered limits for expensive endpoints (search, export, bulk)", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["search endpoint has separate, lower limit", "export and bulk endpoints each have their own tier", "tiers documented in API docs"] },
+      { "id": "task-customer-status-page", "kind": "task", "title": "Build self-service rate-limit status page for customers", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["shows current window usage vs limit per tier", "resets-at timestamp displayed", "accessible from API key settings page"] },
+      { "id": "task-ops-dashboard", "kind": "task", "title": "Build internal ops dashboard for usage monitoring and limit overrides", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["top-N consumers shown in real-time", "ops can set temporary limit override per key", "override expires automatically"] },
+      { "id": "task-limit-breach-alerting", "kind": "task", "title": "Add alerting when a key consistently hits its rate limit", "status": "todo", "deps": ["task-core-rate-limiter"], "acceptance": ["alert fires when key hits limit ≥5 times in 10 min", "PagerDuty and Slack channels notified", "alert includes key owner contact info"] },
+      { "id": "risk-redis-failover", "kind": "risk", "description": "Redis unavailability disables rate limiting; failover to in-process counters loses cross-instance accuracy", "likelihood": "L", "impact": "H", "mitigation": "Fail open with conservative in-process fallback; alert on-call immediately on Redis connectivity loss; plan Redis HA cluster" },
+      { "id": "oq-limit-defaults", "kind": "openQuestion", "question": "What should the default rate limits be for standard, search, and bulk tiers? Needs input from product and sales." }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-rate-limiting",
+    "dec-rate-limit-store",
+    "task-core-rate-limiter",
+    "task-tiered-limits",
+    "task-customer-status-page",
+    "task-ops-dashboard",
+    "oq-limit-defaults"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-redis-single-point",
+    "newId": "risk-redis-failover",
+    "kind": "risk",
+    "note": "Same risk (Redis as SPOF for rate limiting) but description and mitigation expanded to cover HA planning; id renamed to better reflect scope. AC-13 fallback must map risk-redis-single-point to risk-redis-failover."
+  },
+  "decoy": {
+    "id": "task-limit-breach-alerting",
+    "kind": "task",
+    "resemblesOldId": "task-ops-dashboard",
+    "note": "Genuinely-new block. Shares surface tokens 'limit', 'ops', and 'key' with task-ops-dashboard. A comment on task-ops-dashboard must re-attach to task-ops-dashboard (id preserved), NOT this new alerting task."
+  },
+  "notes": "Renumbering pressure: task-spike-redis-perf inserted second (shifts all subsequent positions); task-limit-breach-alerting added; risk-redis-single-point id changed to risk-redis-failover. Naive positional scheme loses alignment at dec-rate-limit-store onward. Denominator is 7."
+}

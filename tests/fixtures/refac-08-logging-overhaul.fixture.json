@@ -1,0 +1,60 @@
+{
+  "name": "refac-08-logging-overhaul",
+  "schemaVersion": 1,
+  "initialPrompt": "Our logging is a disaster — some services use console.log, some use Winston, two microservices use Bunyan, and nothing has consistent structured fields. When an incident happens I can't correlate logs across services. I need: a unified structured logging standard (JSON with trace IDs), a migration plan for all 8 services, and a way to verify that every log line in production is parseable by our new log aggregator.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-logging-overhaul",
+    "title": "Logging overhaul: unified structured JSON logging across 8 services",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-logging", "kind": "objective", "text": "Establish unified structured JSON logging with trace IDs across all 8 services", "successCriteria": ["All log lines parseable by aggregator", "Trace IDs present in 100% of request logs", "Incident correlation time reduced from hours to minutes"] },
+      { "id": "task-log-standard", "kind": "task", "title": "Define logging standard: JSON schema, required fields, trace ID propagation", "status": "todo", "deps": [], "acceptance": ["Standard doc published to internal wiki", "JSON schema for log lines committed to shared repo"] },
+      { "id": "task-shared-logger", "kind": "task", "title": "Build shared logger package wrapping Pino", "status": "todo", "deps": ["task-log-standard"], "acceptance": ["Package published to internal registry", "All required fields emitted automatically", "Trace ID injected from AsyncLocalStorage"] },
+      { "id": "task-migrate-services", "kind": "task", "title": "Migrate all 8 services to shared logger package", "status": "todo", "deps": ["task-shared-logger"], "acceptance": ["Zero console.log / Winston / Bunyan imports remain", "Each service migration reviewed in separate PR"] },
+      { "id": "task-aggregator-validate", "kind": "task", "title": "Add aggregator parse validation to CI for each service", "status": "todo", "deps": ["task-migrate-services"], "acceptance": ["CI fails if any log line fails aggregator parse", "Validation runs against realistic log fixtures"] },
+      { "id": "dec-log-library", "kind": "decision", "question": "Which underlying log library: Pino, Winston, or Bunyan?", "options": [{ "label": "Pino" }, { "label": "Winston" }, { "label": "Bunyan" }], "chosen": "Pino", "rationale": "Pino is the fastest Node.js logger; minimal overhead in hot paths." },
+      { "id": "oq-log-retention", "kind": "openQuestion", "question": "What is the required log retention period per service tier (real-time, batch, background)?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-logging-overhaul",
+    "title": "Logging overhaul: unified structured JSON logging across 8 services",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-logging", "kind": "objective", "text": "Establish unified structured JSON logging with trace IDs across all 8 services, with aggregator-validated output", "successCriteria": ["All log lines parseable by aggregator", "Trace IDs present in 100% of request logs", "Incident correlation time reduced from hours to minutes", "Log volume increase less than 20% after migration"] },
+      { "id": "task-log-volume-spike", "kind": "task", "title": "Spike: measure log volume impact of adding required fields to all services", "status": "todo", "deps": [], "acceptance": ["Estimated log volume increase calculated per service", "Decision input: do we need sampling?"] },
+      { "id": "task-log-standard", "kind": "task", "title": "Define logging standard: JSON schema, required fields, trace ID propagation", "status": "todo", "deps": ["task-log-volume-spike"], "acceptance": ["Standard doc published to internal wiki", "JSON schema for log lines committed to shared repo"] },
+      { "id": "task-shared-logger", "kind": "task", "title": "Build shared logger package wrapping Pino", "status": "todo", "deps": ["task-log-standard"], "acceptance": ["Package published to internal registry", "All required fields emitted automatically", "Trace ID injected from AsyncLocalStorage"] },
+      { "id": "task-migrate-services", "kind": "task", "title": "Migrate all 8 services to shared logger package", "status": "todo", "deps": ["task-shared-logger"], "acceptance": ["Zero console.log / Winston / Bunyan imports remain", "Each service migration reviewed in separate PR"] },
+      { "id": "task-aggregator-validate", "kind": "task", "title": "Add aggregator parse validation to CI for each service", "status": "todo", "deps": ["task-migrate-services"], "acceptance": ["CI fails if any log line fails aggregator parse", "Validation runs against realistic log fixtures"] },
+      { "id": "task-sampling-strategy", "kind": "task", "title": "Implement log sampling for high-volume debug-level entries", "status": "todo", "deps": ["task-log-volume-spike", "task-shared-logger"], "acceptance": ["Sampling rate configurable per service via env", "Sampled logs still maintain trace ID continuity"] },
+      { "id": "dec-log-backend", "kind": "decision", "question": "Which underlying log library: Pino, Winston, or Bunyan?", "options": [{ "label": "Pino" }, { "label": "Winston" }, { "label": "Bunyan" }], "chosen": "Pino", "rationale": "Pino is the fastest Node.js logger; minimal overhead in hot paths." },
+      { "id": "oq-log-retention", "kind": "openQuestion", "question": "What is the required log retention period per service tier (real-time, batch, background)?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-logging",
+    "task-log-standard",
+    "task-shared-logger",
+    "task-migrate-services",
+    "task-aggregator-validate",
+    "oq-log-retention"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-log-library",
+    "newId": "dec-log-backend",
+    "kind": "decision",
+    "note": "Same decision about which logging library to use (Pino vs Winston vs Bunyan), but id changed from dec-log-library to dec-log-backend. AC-13 must map comments from dec-log-library to dec-log-backend."
+  },
+  "decoy": {
+    "id": "task-sampling-strategy",
+    "kind": "task",
+    "resemblesOldId": "task-shared-logger",
+    "note": "Genuinely new block. Shares surface tokens 'log', 'shared', and 'Pino' with task-shared-logger. A comment on task-shared-logger must stay on task-shared-logger, not migrate to task-sampling-strategy."
+  },
+  "notes": "Renumbering pressure: task-log-volume-spike inserted near top shifts all subsequent tasks; task-sampling-strategy inserted before dec block; dec-log-library renamed to dec-log-backend; oq-log-retention preserved unchanged. Positional scheme breaks after leading task insertion."
+}

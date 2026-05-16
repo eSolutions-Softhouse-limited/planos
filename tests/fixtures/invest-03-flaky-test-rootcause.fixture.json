@@ -1,0 +1,60 @@
+{
+  "name": "invest-03-flaky-test-rootcause",
+  "schemaVersion": 1,
+  "initialPrompt": "Our CI pipeline is failing 20-30% of the time on a non-deterministic test suite failure — different tests fail each run. This is killing developer confidence and blocking releases. I need a plan to: systematically identify which tests are flaky and why (timing, shared state, or external dependencies), fix the root causes, and set up a flakiness tracking mechanism so we stop merging new flaky tests going forward.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-flaky-test-rootcause",
+    "title": "Flaky test root-cause investigation and remediation",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-flakiness", "kind": "objective", "text": "Reduce CI failure rate from ~25% to < 1% by eliminating flaky tests", "successCriteria": ["CI green rate > 99% over 7-day window", "flakiness dashboard live", "no new flaky tests merged for 30 days"] },
+      { "id": "task-quarantine-log", "kind": "task", "title": "Collect CI failure logs for last 30 runs and tag which tests failed each time", "status": "todo", "deps": [], "acceptance": ["spreadsheet of test name vs run outcome", "top-10 most-flaky tests identified by failure frequency"] },
+      { "id": "task-classify-causes", "kind": "task", "title": "Classify each flaky test by root cause: timing, shared state, or network", "status": "todo", "deps": ["task-quarantine-log"], "acceptance": ["each of top-10 tests has a documented hypothesis", "classification agreed with QA team"] },
+      { "id": "task-fix-shared-state", "kind": "task", "title": "Fix shared-state flakes by adding proper test isolation (beforeEach teardown)", "status": "todo", "deps": ["task-classify-causes"], "acceptance": ["each shared-state flake passes 50 consecutive local runs", "no global mutable singletons left in test helpers"] },
+      { "id": "dec-timing-strategy", "kind": "decision", "question": "How do we fix timing-dependent tests — fixed waits, retry polling, or deterministic fakes?", "options": [{ "label": "Retry polling with timeout" }, { "label": "Deterministic fakes / test doubles" }, { "label": "Fixed sleeps with generous timeout" }] },
+      { "id": "risk-false-stability", "kind": "risk", "description": "Tests appear fixed locally but still flake in CI due to different concurrency", "likelihood": "H", "impact": "M", "mitigation": "Run fixed tests 100 times in CI matrix before removing quarantine label" },
+      { "id": "oq-external-services", "kind": "openQuestion", "question": "Are any flaky tests hitting real external services (payment sandbox, email) that should be mocked?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-flaky-test-rootcause",
+    "title": "Flaky test root-cause investigation and remediation",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-flakiness", "kind": "objective", "text": "Reduce CI failure rate from ~25% to < 1% by eliminating flaky tests", "successCriteria": ["CI green rate > 99% over 7-day window", "flakiness dashboard live", "no new flaky tests merged for 30 days", "developer confidence survey score improves by 2 points"] },
+      { "id": "task-ci-metrics-export", "kind": "task", "title": "Export CI run outcomes to a structured dataset for the last 60 runs", "status": "todo", "deps": [], "acceptance": ["JSON dataset with test name, run id, outcome, duration", "dataset covers 60 runs minimum"] },
+      { "id": "task-quarantine-log", "kind": "task", "title": "Collect CI failure logs and tag which tests failed each time", "status": "todo", "deps": ["task-ci-metrics-export"], "acceptance": ["spreadsheet of test name vs run outcome", "top-10 most-flaky tests identified by failure frequency"] },
+      { "id": "task-classify-causes", "kind": "task", "title": "Classify each flaky test by root cause: timing, shared state, or network", "status": "todo", "deps": ["task-quarantine-log"], "acceptance": ["each of top-10 tests has a documented hypothesis", "classification agreed with QA team"] },
+      { "id": "task-fix-shared-state", "kind": "task", "title": "Fix shared-state flakes by adding proper test isolation (beforeEach teardown)", "status": "todo", "deps": ["task-classify-causes"], "acceptance": ["each shared-state flake passes 50 consecutive local runs", "no global mutable singletons left in test helpers"] },
+      { "id": "dec-timing-strategy", "kind": "decision", "question": "How do we fix timing-dependent tests — fixed waits, retry polling, or deterministic fakes?", "options": [{ "label": "Retry polling with timeout" }, { "label": "Deterministic fakes / test doubles" }, { "label": "Fixed sleeps with generous timeout" }], "chosen": "Deterministic fakes / test doubles", "rationale": "Eliminates real timing dependency; makes tests fast and predictable." },
+      { "id": "task-flakiness-gate", "kind": "task", "title": "Add pre-merge flakiness gate: block PR if test has failed > 2% in last 100 runs", "status": "todo", "deps": ["task-fix-shared-state"], "acceptance": ["CI step added that queries flakiness DB", "PR blocked automatically when threshold breached"] },
+      { "id": "risk-false-stability", "kind": "risk", "description": "Tests appear fixed locally but still flake in CI due to different concurrency", "likelihood": "H", "impact": "M", "mitigation": "Run fixed tests 100 times in CI matrix before removing quarantine label" },
+      { "id": "oq-mock-boundary", "kind": "openQuestion", "question": "Are any flaky tests hitting real external services (payment sandbox, email) that should be mocked?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-flakiness",
+    "task-quarantine-log",
+    "task-classify-causes",
+    "task-fix-shared-state",
+    "dec-timing-strategy",
+    "risk-false-stability"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-external-services",
+    "newId": "oq-mock-boundary",
+    "kind": "openQuestion",
+    "note": "Same intent (whether flaky tests hit real external services and need mocking) but id renamed during revise. AC-13 re-anchoring maps a comment on oq-external-services to oq-mock-boundary."
+  },
+  "decoy": {
+    "id": "task-flakiness-gate",
+    "kind": "task",
+    "resemblesOldId": "task-quarantine-log",
+    "note": "Genuinely new block. Shares surface tokens 'flakiness' and 'CI' with task-quarantine-log, making it a trap. A comment on task-quarantine-log must stay there, not mis-attach to task-flakiness-gate."
+  },
+  "notes": "Renumbering pressure: task-ci-metrics-export inserted near top shifting positional alignment; task-flakiness-gate added as new block; oq-external-services renamed to oq-mock-boundary. Naive positional scheme would misalign task-quarantine-log. expectedPreservedIds excludes renamed open-question and two new tasks."
+}

@@ -1,0 +1,59 @@
+{
+  "name": "refac-09-config-consolidation",
+  "schemaVersion": 1,
+  "initialPrompt": "We have configuration spread across 6 different places: .env files, AWS SSM Parameter Store, Kubernetes ConfigMaps, a legacy XML config file, hardcoded constants in the codebase, and a homegrown config service from 2018. Every new engineer spends their first week just finding where a setting lives. I need: a single source of truth for all config, a migration plan that doesn't break existing deployments, and a way to detect when anyone adds a new hardcoded constant.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-config-consolidation",
+    "title": "Config consolidation: 6 sources → single source of truth",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-config", "kind": "objective", "text": "Consolidate all configuration into a single source of truth without breaking existing deployments", "successCriteria": ["All config accessible from one location per environment", "No hardcoded constants remain in source", "New engineer onboarding config step takes under 15 minutes"] },
+      { "id": "task-config-audit", "kind": "task", "title": "Audit all 6 config sources and catalogue every key", "status": "todo", "deps": [], "acceptance": ["Master list of all config keys with source and consumers", "Duplicate and conflicting keys identified"] },
+      { "id": "task-schema-design", "kind": "task", "title": "Design unified config schema with validation and typed access", "status": "todo", "deps": ["task-config-audit"], "acceptance": ["Config schema defined with Zod or similar", "All keys typed; missing keys caught at startup"] },
+      { "id": "task-migrate-sources", "kind": "task", "title": "Migrate all 6 sources into unified store incrementally", "status": "todo", "deps": ["task-schema-design"], "acceptance": ["Each source migrated in a separate PR", "Zero downtime; old and new paths parallel during migration"] },
+      { "id": "task-hardcode-lint", "kind": "task", "title": "Add lint rule to detect new hardcoded config constants", "status": "todo", "deps": ["task-schema-design"], "acceptance": ["CI fails on new hardcoded URLs, ports, or API keys", "Allowlist for known-intentional constants"] },
+      { "id": "dec-config-store", "kind": "decision", "question": "Use AWS SSM as the canonical store or adopt HashiCorp Vault?", "options": [{ "label": "AWS SSM (extend current)" }, { "label": "HashiCorp Vault" }], "chosen": "AWS SSM (extend current)", "rationale": "SSM is already in use; Vault adds operational complexity without benefit at current scale." },
+      { "id": "oq-xml-legacy", "kind": "openQuestion", "question": "Is the legacy XML config still actively read at runtime or only on startup? This affects migration ordering." }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-config-consolidation",
+    "title": "Config consolidation: 6 sources → single source of truth",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-config", "kind": "objective", "text": "Consolidate all configuration into a single source of truth without breaking existing deployments or increasing startup latency", "successCriteria": ["All config accessible from one location per environment", "No hardcoded constants remain in source", "New engineer onboarding config step takes under 15 minutes", "Startup latency increase less than 200ms"] },
+      { "id": "task-startup-baseline", "kind": "task", "title": "Measure current service startup latency before config changes", "status": "todo", "deps": [], "acceptance": ["Startup time measured for each of 8 services", "Baseline stored for regression comparison"] },
+      { "id": "task-config-audit", "kind": "task", "title": "Audit all 6 config sources and catalogue every key", "status": "todo", "deps": ["task-startup-baseline"], "acceptance": ["Master list of all config keys with source and consumers", "Duplicate and conflicting keys identified"] },
+      { "id": "task-schema-design", "kind": "task", "title": "Design unified config schema with validation and typed access", "status": "todo", "deps": ["task-config-audit"], "acceptance": ["Config schema defined with Zod or similar", "All keys typed; missing keys caught at startup"] },
+      { "id": "task-migrate-sources", "kind": "task", "title": "Migrate all 6 sources into unified store incrementally", "status": "todo", "deps": ["task-schema-design"], "acceptance": ["Each source migrated in a separate PR", "Zero downtime; old and new paths parallel during migration"] },
+      { "id": "task-hardcode-lint", "kind": "task", "title": "Add lint rule to detect new hardcoded config constants", "status": "todo", "deps": ["task-schema-design"], "acceptance": ["CI fails on new hardcoded URLs, ports, or API keys", "Allowlist for known-intentional constants"] },
+      { "id": "task-xml-reader-retire", "kind": "task", "title": "Retire legacy XML config reader after migration", "status": "todo", "deps": ["task-migrate-sources"], "acceptance": ["XML reader code deleted", "No references to XML config in codebase"] },
+      { "id": "dec-canonical-store", "kind": "decision", "question": "Use AWS SSM as the canonical store or adopt HashiCorp Vault?", "options": [{ "label": "AWS SSM (extend current)" }, { "label": "HashiCorp Vault" }], "chosen": "AWS SSM (extend current)", "rationale": "SSM is already in use; Vault adds operational complexity without benefit at current scale." },
+      { "id": "oq-xml-runtime", "kind": "openQuestion", "question": "Is the legacy XML config still actively read at runtime or only on startup? This affects migration ordering." }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-config",
+    "task-config-audit",
+    "task-schema-design",
+    "task-migrate-sources",
+    "task-hardcode-lint"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-config-store",
+    "newId": "dec-canonical-store",
+    "kind": "decision",
+    "note": "Same decision about SSM vs Vault, but id changed from dec-config-store to dec-canonical-store. AC-13 must map comments from dec-config-store to dec-canonical-store."
+  },
+  "decoy": {
+    "id": "task-xml-reader-retire",
+    "kind": "task",
+    "resemblesOldId": "task-migrate-sources",
+    "note": "Genuinely new block. Shares surface tokens 'XML', 'migrate', and 'config' with task-migrate-sources and the oq-xml-legacy question. A comment on task-migrate-sources must stay on task-migrate-sources, not migrate to task-xml-reader-retire."
+  },
+  "notes": "Renumbering pressure: task-startup-baseline inserted at position 1 shifts all subsequent tasks; task-xml-reader-retire inserted before dec block; dec-config-store renamed to dec-canonical-store; oq-xml-legacy renamed to oq-xml-runtime. expectedPreservedIds has 5 entries, deliberately excluding the changed ids."
+}

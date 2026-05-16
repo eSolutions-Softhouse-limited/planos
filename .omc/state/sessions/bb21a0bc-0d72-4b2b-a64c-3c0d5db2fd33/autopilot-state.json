@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "started_at": "2026-05-16T09:16:33.188Z",
+  "original_prompt": "I'd like you to continue with the /autopilot",
+  "session_id": "bb21a0bc-0d72-4b2b-a64c-3c0d5db2fd33",
+  "project_path": "/Users/ggiak/www/esolutions.gr/planos",
+  "reinforcement_count": 6,
+  "awaiting_confirmation_set_at": "2026-05-16T09:16:33.188Z",
+  "last_checked_at": "2026-05-16T09:55:56.983Z"
+}

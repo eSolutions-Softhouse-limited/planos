@@ -1,0 +1,63 @@
+{
+  "name": "feat-03-file-upload",
+  "schemaVersion": 1,
+  "initialPrompt": "We need a proper file upload system. Users currently paste base64 into text fields which is terrible. I want: drag-and-drop upload with progress bar, support for images, PDFs, and spreadsheets up to 50 MB, virus scanning before files are served, thumbnail generation for images, and a file management page where users can view, rename, and delete their uploads. Storage should be S3-compatible.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-file-upload",
+    "title": "File upload system with S3 storage",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-file-upload", "kind": "objective", "text": "Replace base64-in-text-field workaround with a first-class file upload system", "successCriteria": ["uploads up to 50 MB succeed reliably", "virus-infected files never served to users", "images show thumbnails within 10 s of upload"] },
+      { "id": "dec-storage", "kind": "decision", "question": "Which S3-compatible storage provider?", "options": [{ "label": "AWS S3" }, { "label": "Cloudflare R2" }], "chosen": "Cloudflare R2", "rationale": "Zero egress fees; S3-compatible API means no SDK changes later." },
+      { "id": "task-upload-ui", "kind": "task", "title": "Build drag-and-drop upload widget with progress bar", "status": "todo", "deps": [], "acceptance": ["drag-and-drop works in Chrome/Firefox/Safari", "progress bar updates in real-time", "file type and size validated client-side before upload"] },
+      { "id": "task-upload-api", "kind": "task", "title": "Build upload API endpoint with presigned URLs", "status": "todo", "deps": [], "acceptance": ["returns presigned R2 URL", "validates MIME type server-side", "rejects files over 50 MB"] },
+      { "id": "task-virus-scan", "kind": "task", "title": "Integrate virus scanning before files are marked available", "status": "todo", "deps": ["task-upload-api"], "acceptance": ["infected files quarantined, not served", "scan completes within 30 s", "user notified if file rejected"] },
+      { "id": "task-thumbnails", "kind": "task", "title": "Generate image thumbnails asynchronously post-upload", "status": "todo", "deps": ["task-upload-api"], "acceptance": ["thumbnail at 200×200 generated for JPEG/PNG/WebP", "stored in same bucket with -thumb suffix", "UI shows thumbnail within 10 s"] },
+      { "id": "risk-scan-latency", "kind": "risk", "description": "Virus scan SLA may exceed 30 s for large files, degrading UX", "likelihood": "M", "impact": "M", "mitigation": "Show 'processing' state; notify via email when file is ready" },
+      { "id": "oq-retention-policy", "kind": "openQuestion", "question": "Should we enforce a per-user storage quota, and if so what is the limit?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-file-upload",
+    "title": "File upload system with S3 storage",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-file-upload", "kind": "objective", "text": "Replace base64-in-text-field workaround with a first-class file upload system", "successCriteria": ["uploads up to 50 MB succeed reliably", "virus-infected files never served to users", "images show thumbnails within 10 s of upload"] },
+      { "id": "task-spike-scan-provider", "kind": "task", "title": "Spike: evaluate virus scanning providers (ClamAV vs SaaS)", "status": "todo", "deps": [], "acceptance": ["latency benchmarked for 10 MB and 50 MB files", "cost per scan documented", "recommendation written up"] },
+      { "id": "dec-storage", "kind": "decision", "question": "Which S3-compatible storage provider?", "options": [{ "label": "AWS S3" }, { "label": "Cloudflare R2" }], "chosen": "Cloudflare R2", "rationale": "Zero egress fees; S3-compatible API means no SDK changes later." },
+      { "id": "task-upload-ui", "kind": "task", "title": "Build drag-and-drop upload widget with progress bar", "status": "todo", "deps": [], "acceptance": ["drag-and-drop works in Chrome/Firefox/Safari", "progress bar updates in real-time", "file type and size validated client-side before upload"] },
+      { "id": "task-upload-api", "kind": "task", "title": "Build upload API endpoint with presigned URLs", "status": "todo", "deps": [], "acceptance": ["returns presigned R2 URL", "validates MIME type server-side", "rejects files over 50 MB"] },
+      { "id": "task-virus-scan", "kind": "task", "title": "Integrate virus scanning before files are marked available", "status": "todo", "deps": ["task-upload-api", "task-spike-scan-provider"], "acceptance": ["infected files quarantined, not served", "scan completes within 30 s", "user notified if file rejected"] },
+      { "id": "task-thumbnails", "kind": "task", "title": "Generate image thumbnails asynchronously post-upload", "status": "todo", "deps": ["task-upload-api"], "acceptance": ["thumbnail at 200×200 generated for JPEG/PNG/WebP", "stored in same bucket with -thumb suffix", "UI shows thumbnail within 10 s"] },
+      { "id": "task-file-manager-page", "kind": "task", "title": "Build file management page (view, rename, delete)", "status": "todo", "deps": ["task-upload-ui", "task-upload-api"], "acceptance": ["lists all user files with size and date", "rename updates metadata", "delete removes from storage and DB"] },
+      { "id": "risk-scan-latency-v2", "kind": "risk", "description": "Virus scan SLA may exceed 30 s for large files; chosen provider may change after spike", "likelihood": "M", "impact": "M", "mitigation": "Show 'processing' state; notify via email when file is ready; spike informs provider choice" },
+      { "id": "oq-retention-policy", "kind": "openQuestion", "question": "Should we enforce a per-user storage quota, and if so what is the limit?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-file-upload",
+    "dec-storage",
+    "task-upload-ui",
+    "task-upload-api",
+    "task-virus-scan",
+    "task-thumbnails",
+    "oq-retention-policy"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-scan-latency",
+    "newId": "risk-scan-latency-v2",
+    "kind": "risk",
+    "note": "Same risk (scan latency) but description expanded after spike task added, and id changed. AC-13 re-anchoring fallback must map comments on risk-scan-latency to risk-scan-latency-v2."
+  },
+  "decoy": {
+    "id": "task-file-manager-page",
+    "kind": "task",
+    "resemblesOldId": "task-upload-ui",
+    "note": "Genuinely-new block. Shares surface tokens 'file' and 'upload' with task-upload-ui, a real trap. Comments on task-upload-ui must re-attach to task-upload-ui (id preserved), NOT this new file manager task."
+  },
+  "notes": "Renumbering pressure: spike task inserted second (shifts all positions); task-file-manager-page added; risk-scan-latency id changed to risk-scan-latency-v2. Naive positional ID scheme loses alignment after spike insertion. Denominator is 7."
+}

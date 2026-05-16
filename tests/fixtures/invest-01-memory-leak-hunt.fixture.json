@@ -1,0 +1,60 @@
+{
+  "name": "invest-01-memory-leak-hunt",
+  "schemaVersion": 1,
+  "initialPrompt": "Our Node.js API server's heap keeps growing until the process OOMs and restarts every ~6 hours. I need you to plan how we find and fix this. Specifically: instrument the process to capture heap snapshots automatically at growth thresholds, identify the top retention paths, and produce a fix + regression test so it doesn't come back. Also figure out whether this is a genuine leak or just V8 not releasing memory it doesn't need to.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-memleak-hunt",
+    "title": "Node.js memory leak hunt and fix",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-memleak", "kind": "objective", "text": "Identify and permanently fix the heap growth causing OOM restarts every ~6 hours", "successCriteria": ["heap stable after 24 h soak test", "no OOM restart in staging for 7 days", "regression test added to CI"] },
+      { "id": "dec-snapshot-tool", "kind": "decision", "question": "Which heap snapshot tool do we use — built-in Node.js inspector or a third-party profiler?", "options": [{ "label": "Node.js built-in --inspect + heapdump" }, { "label": "Clinic.js Heapprofile" }, { "label": "dd-trace memory profiler" }] },
+      { "id": "task-baseline-metrics", "kind": "task", "title": "Capture baseline RSS and heap-used metrics in production", "status": "todo", "deps": [], "acceptance": ["time-series chart of heap-used exported to dashboards", "OOM event timestamps correlated with heap spike"] },
+      { "id": "task-heap-snapshot", "kind": "task", "title": "Instrument service to auto-capture heap snapshots at 80% heap threshold", "status": "todo", "deps": ["task-baseline-metrics"], "acceptance": ["snapshot written to /tmp on threshold breach", "snapshot uploaded to S3 within 60 s"] },
+      { "id": "task-analyze-retention", "kind": "task", "title": "Analyze top retention paths in captured snapshots", "status": "todo", "deps": ["task-heap-snapshot"], "acceptance": ["top 5 retaining constructor chains documented", "root cause identified"] },
+      { "id": "risk-prod-overhead", "kind": "risk", "description": "Heap snapshot capture adds significant CPU pause in production", "likelihood": "M", "impact": "H", "mitigation": "Capture snapshots only off peak hours; use async streaming snapshot API" },
+      { "id": "oq-v8-lazy-release", "kind": "openQuestion", "question": "Is the heap growth due to a genuine reference leak or V8 deferring GC because memory is available?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-memleak-hunt",
+    "title": "Node.js memory leak hunt and fix",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-memleak", "kind": "objective", "text": "Identify and permanently fix the heap growth causing OOM restarts every ~6 hours", "successCriteria": ["heap stable after 24 h soak test", "no OOM restart in staging for 7 days", "regression test added to CI", "P95 GC pause < 50 ms after fix"] },
+      { "id": "task-repro-local", "kind": "task", "title": "Reproduce OOM in local load-test environment before instrumenting production", "status": "todo", "deps": [], "acceptance": ["heap growth confirmed with k6 at 2x prod traffic", "repro script checked in to repo"] },
+      { "id": "dec-snapshot-tool", "kind": "decision", "question": "Which heap snapshot tool do we use — built-in Node.js inspector or a third-party profiler?", "options": [{ "label": "Node.js built-in --inspect + heapdump" }, { "label": "Clinic.js Heapprofile" }, { "label": "dd-trace memory profiler" }], "chosen": "Clinic.js Heapprofile", "rationale": "Lower production overhead; timeline view makes it easier to correlate with request spikes." },
+      { "id": "task-baseline-metrics", "kind": "task", "title": "Capture baseline RSS and heap-used metrics in production", "status": "todo", "deps": ["task-repro-local"], "acceptance": ["time-series chart of heap-used exported to dashboards", "OOM event timestamps correlated with heap spike"] },
+      { "id": "task-heap-snapshot", "kind": "task", "title": "Instrument service to auto-capture heap snapshots at 80% heap threshold", "status": "todo", "deps": ["task-baseline-metrics"], "acceptance": ["snapshot written to /tmp on threshold breach", "snapshot uploaded to S3 within 60 s"] },
+      { "id": "task-analyze-retention", "kind": "task", "title": "Analyze top retention paths in captured snapshots", "status": "todo", "deps": ["task-heap-snapshot"], "acceptance": ["top 5 retaining constructor chains documented", "root cause identified"] },
+      { "id": "task-regression-test", "kind": "task", "title": "Add heap-growth regression test to CI using jest-leak-detector", "status": "todo", "deps": ["task-analyze-retention"], "acceptance": ["CI fails if heap grows > 10 MB over 1000 requests in unit test suite"] },
+      { "id": "risk-prod-overhead", "kind": "risk", "description": "Heap snapshot capture adds significant CPU pause in production", "likelihood": "M", "impact": "H", "mitigation": "Capture snapshots only off peak hours; use async streaming snapshot API" },
+      { "id": "oq-gc-pressure", "kind": "openQuestion", "question": "Is the heap growth due to a genuine reference leak or V8 deferring GC because memory is available?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-memleak",
+    "dec-snapshot-tool",
+    "task-baseline-metrics",
+    "task-heap-snapshot",
+    "task-analyze-retention",
+    "risk-prod-overhead"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-v8-lazy-release",
+    "newId": "oq-gc-pressure",
+    "kind": "openQuestion",
+    "note": "Same intent (genuine leak vs V8 lazy GC) but id was renamed during revise. Not in expectedPreservedIds; AC-13 re-anchoring must map a comment on oq-v8-lazy-release to oq-gc-pressure."
+  },
+  "decoy": {
+    "id": "task-regression-test",
+    "kind": "task",
+    "resemblesOldId": "task-analyze-retention",
+    "note": "Genuinely new block. Shares surface tokens 'retention' and 'heap' with task-analyze-retention, making it a trap for the re-anchoring fallback. A comment on task-analyze-retention must re-attach there, NOT here."
+  },
+  "notes": "Renumbering pressure: task-repro-local inserted near top shifting positional alignment; task-regression-test appended as genuinely new; oq-v8-lazy-release renamed to oq-gc-pressure. Naive positional scheme loses obj/dec alignment after the inserted repro task. expectedPreservedIds excludes the id-changed open-question and the two new tasks."
+}

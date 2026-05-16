@@ -1,0 +1,309 @@
+/**
+ * planos — /planos-plan graceful interruption tests (plain Node, zero dependencies).
+ *
+ * Covers US-022 / AC-16 (degradation path):
+ *   - The command file contains an explicit early-exit / interruption instruction block.
+ *   - On interruption, the agent MUST proceed to block authoring (not abort).
+ *   - The command MUST NOT loop, MUST NOT refuse, MUST NOT crash.
+ *   - The command is self-contained (no /deep-interview, /grill-me, external skill refs).
+ *
+ * Regression guard: re-runs all planos-plan-command.test.mjs assertions in-process
+ * to confirm the graceful-interruption additions did not break any prior passing test.
+ *
+ * Run: node tests/planos-plan-interrupt.test.mjs
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ROOT = resolve(__dirname, "..");
+
+let passed = 0;
+let failed = 0;
+
+function test(name, fn) {
+  try {
+    fn();
+    passed++;
+    console.log(`  PASS  ${name}`);
+  } catch (err) {
+    failed++;
+    console.log(`  FAIL  ${name}`);
+    console.log(`        ${err && err.message ? err.message : String(err)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const COMMAND_PATH = resolve(ROOT, "plugin/commands/planos-plan.md");
+
+function readCommand() {
+  return readFileSync(COMMAND_PATH, "utf8");
+}
+
+// ---------------------------------------------------------------------------
+// 1. Interruption instruction block exists
+// ---------------------------------------------------------------------------
+
+console.log("\n── Interruption instruction block exists ──");
+
+test("command file contains an explicit early-exit / interruption section", () => {
+  const src = readCommand();
+  const hasSection =
+    src.includes("Graceful interruption") ||
+    src.includes("graceful interruption") ||
+    src.includes("early-exit") ||
+    src.includes("early exit");
+  assert.ok(
+    hasSection,
+    "Command must contain a dedicated graceful interruption / early-exit section"
+  );
+});
+
+test("command names explicit interruption signals: 'skip'", () => {
+  const src = readCommand();
+  assert.ok(
+    src.includes("skip"),
+    "Command must name 'skip' as an interruption signal"
+  );
+});
+
+test("command names explicit interruption signals: 'just build it' or equivalent", () => {
+  const src = readCommand();
+  const hasJustBuild =
+    src.includes("just build it") ||
+    src.includes("just do it") ||
+    src.includes("go ahead") ||
+    src.includes("proceed");
+  assert.ok(
+    hasJustBuild,
+    "Command must name 'just build it' / 'go ahead' / 'proceed' as an interruption signal"
+  );
+});
+
+test("command names one-word / one-sentence answer as an interruption signal", () => {
+  const src = readCommand();
+  const hasOneWord =
+    src.includes("one-word") ||
+    src.includes("one word") ||
+    src.includes("single word") ||
+    src.includes("one-sentence");
+  assert.ok(
+    hasOneWord,
+    "Command must identify one-word or one-sentence answers as early-exit signals"
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 2. On interruption: proceed to block authoring (not abort)
+// ---------------------------------------------------------------------------
+
+console.log("\n── On interruption: must proceed to authoring ──");
+
+test("command instructs stopping questions immediately on interruption", () => {
+  const src = readCommand();
+  const hasStop =
+    src.includes("Stop asking questions immediately") ||
+    src.includes("stop asking questions immediately") ||
+    src.includes("stop immediately") ||
+    src.includes("Stop immediately");
+  assert.ok(
+    hasStop,
+    "Command must instruct stopping questions immediately when an interruption signal is detected"
+  );
+});
+
+test("command instructs synthesizing a best-effort intent summary on interruption", () => {
+  const src = readCommand();
+  const hasSynthesize =
+    src.includes("best-effort") ||
+    src.includes("best effort") ||
+    src.includes("synthesize");
+  assert.ok(
+    hasSynthesize,
+    "Command must instruct synthesizing a best-effort intent summary from whatever was gathered"
+  );
+});
+
+test("command instructs stating it is proceeding with reduced clarity", () => {
+  const src = readCommand();
+  const hasReducedClarity =
+    src.includes("reduced clarity") ||
+    src.includes("proceeding with reduced") ||
+    src.includes("proceed with reduced");
+  assert.ok(
+    hasReducedClarity,
+    "Command must instruct stating that it is proceeding with reduced clarity on interruption"
+  );
+});
+
+test("command instructs continuing to Phase 2 / block authoring after interruption", () => {
+  const src = readCommand();
+  // After the interruption section we must see explicit instruction to go to Phase 2
+  const src_lower = src.toLowerCase();
+  const hasPhase2Continue =
+    src_lower.includes("continue immediately to phase 2") ||
+    src_lower.includes("proceed to phase 2") ||
+    src_lower.includes("continue to phase 2") ||
+    src_lower.includes("move to phase 2") ||
+    (src_lower.includes("phase 2") && src_lower.includes("unconditionally"));
+  assert.ok(
+    hasPhase2Continue,
+    "Command must explicitly instruct continuing to Phase 2 block authoring after an interruption"
+  );
+});
+
+test("command's interruption path still reaches ExitPlanMode", () => {
+  const src = readCommand();
+  // ExitPlanMode must appear after the interruption section
+  const interruptIdx = src.search(/graceful interruption|early.exit/i);
+  const exitIdx = src.lastIndexOf("ExitPlanMode");
+  assert.ok(interruptIdx !== -1, "No interruption section found");
+  assert.ok(exitIdx !== -1, "ExitPlanMode not found in command");
+  assert.ok(
+    exitIdx > interruptIdx,
+    "ExitPlanMode must appear after the interruption section (loop always reachable)"
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 3. Forbidden: looping, refusing, crashing
+// ---------------------------------------------------------------------------
+
+console.log("\n── Forbidden behaviours (loop / refuse / crash) ──");
+
+test("command forbids looping on interruption (must not re-prompt)", () => {
+  const src = readCommand();
+  const forbidsLoop =
+    src.includes("never loop") ||
+    src.includes("Never loop") ||
+    src.includes("Do not loop") ||
+    src.includes("do not loop") ||
+    src.includes("do not re-prompt") ||
+    src.includes("Do not re-prompt");
+  assert.ok(
+    forbidsLoop,
+    "Command must explicitly forbid looping / re-prompting after an interruption signal"
+  );
+});
+
+test("command forbids refusing to proceed on interruption", () => {
+  const src = readCommand();
+  const forbidsRefuse =
+    src.includes("Never refuse") ||
+    src.includes("never refuse") ||
+    src.includes("do not refuse") ||
+    src.includes("Do not refuse");
+  assert.ok(
+    forbidsRefuse,
+    "Command must explicitly forbid refusing to proceed after an interruption"
+  );
+});
+
+test("command guarantees loop is always reachable after interruption", () => {
+  const src = readCommand();
+  const alwaysReachable =
+    src.includes("always reach") ||
+    src.includes("Always reach") ||
+    src.includes("always reachable") ||
+    src.includes("MUST always be reachable") ||
+    src.includes("must always be reachable") ||
+    src.includes("always be reachable");
+  assert.ok(
+    alwaysReachable,
+    "Command must guarantee the browser review loop is always reachable after an interruption"
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 4. Self-containment — no external skill invocation in interruption path
+// ---------------------------------------------------------------------------
+
+console.log("\n── Self-containment (interruption path) ──");
+
+test("command does NOT reference /deep-interview (anywhere, including interruption section)", () => {
+  const src = readCommand();
+  assert.ok(
+    !src.includes("/deep-interview"),
+    "Command must not reference /deep-interview — interruption fallback must be self-contained"
+  );
+});
+
+test("command does NOT reference /grill-me (anywhere, including interruption section)", () => {
+  const src = readCommand();
+  assert.ok(
+    !src.includes("/grill-me"),
+    "Command must not reference /grill-me — interruption fallback must be self-contained"
+  );
+});
+
+test("interruption section explicitly states self-containment (no external skill)", () => {
+  const src = readCommand();
+  // The section must say not to invoke external skills for the fallback
+  const hasSelfContained =
+    src.includes("Self-contained") ||
+    src.includes("self-contained") ||
+    src.includes("no external skill") ||
+    src.includes("entirely handled by these instructions");
+  assert.ok(
+    hasSelfContained,
+    "Interruption section must state the fallback is self-contained (no external skill)"
+  );
+});
+
+test("command does NOT invoke oh-my-claudecode skills", () => {
+  const src = readCommand();
+  const hasOmcInvocation =
+    /\/oh-my-claudecode:[a-z]/.test(src) || /\/omc:[a-z]/.test(src);
+  assert.ok(
+    !hasOmcInvocation,
+    "Command must not invoke oh-my-claudecode skills (self-contained requirement)"
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 5. Regression guard — re-run planos-plan-command.test.mjs
+// ---------------------------------------------------------------------------
+
+console.log("\n── Regression guard (re-run planos-plan-command.test.mjs) ──");
+
+test("planos-plan-command.test.mjs still passes with zero failures", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["--test", "tests/planos-plan-command.test.mjs"],
+    { cwd: ROOT, encoding: "utf8", timeout: 15000 }
+  );
+  // The prior suite exits 0 on all pass, 1 on any failure
+  assert.equal(
+    result.status,
+    0,
+    `planos-plan-command.test.mjs reported failures:\n${result.stdout}\n${result.stderr}`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+console.log(`\n── Results ──`);
+console.log(`  ${passed} passed, ${failed} failed`);
+
+console.log("\n  MANUAL SMOKE (AC-16 [M]) — document only, not automated:");
+console.log("  Start /planos-plan, interrupt mid-interview with 'just build it',");
+console.log("  confirm: agent stops questions, states reduced clarity, proceeds to");
+console.log("  Phase 2 authoring, calls ExitPlanMode, browser opens. No crash.");
+console.log("  See docs/notes/planos-plan-command.md Scenario C for full steps.");
+
+if (failed > 0) {
+  process.exit(1);
+} else {
+  console.log("\n  All automated interruption checks passed.");
+  process.exit(0);
+}

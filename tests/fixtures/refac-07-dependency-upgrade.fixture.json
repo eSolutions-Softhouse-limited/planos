@@ -1,0 +1,60 @@
+{
+  "name": "refac-07-dependency-upgrade",
+  "schemaVersion": 1,
+  "initialPrompt": "We're running React 16, Webpack 4, and Babel 6 — all end-of-life. We need to upgrade to React 18, Webpack 5, and Babel 7 without breaking our 200-component library. There are also 15 third-party plugins that haven't released React 18 compatible versions yet. I need a plan for: the upgrade order, handling the incompatible plugins, and making sure our visual regression suite stays green throughout.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-dep-upgrade",
+    "title": "React 16 / Webpack 4 / Babel 6 → 18 / 5 / 7 upgrade",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-upgrade", "kind": "objective", "text": "Upgrade React 16→18, Webpack 4→5, Babel 6→7 with all 200 components functioning and VR tests green", "successCriteria": ["All 200 components render correctly in React 18", "Bundle size within 5% of pre-upgrade baseline", "Zero high-severity CVEs in dependency tree"] },
+      { "id": "task-plugin-audit", "kind": "task", "title": "Audit the 15 incompatible plugins and classify each", "status": "todo", "deps": [], "acceptance": ["Each plugin: fork / replace / wrap / wait classified", "Forkable plugins identified with maintenance owners"] },
+      { "id": "task-babel-upgrade", "kind": "task", "title": "Upgrade Babel 6 → 7 on a feature branch", "status": "todo", "deps": ["task-plugin-audit"], "acceptance": ["Build succeeds with Babel 7", "All existing tests green"] },
+      { "id": "task-webpack-upgrade", "kind": "task", "title": "Upgrade Webpack 4 → 5 (module federation compatible)", "status": "todo", "deps": ["task-babel-upgrade"], "acceptance": ["Dev server and production build both succeed", "Bundle size comparison documented"] },
+      { "id": "task-react-upgrade", "kind": "task", "title": "Upgrade React 16 → 18 and enable concurrent features opt-in", "status": "todo", "deps": ["task-webpack-upgrade"], "acceptance": ["All 200 components render in React 18 StrictMode", "VR snapshot tests pass"] },
+      { "id": "dec-incompatible-plugins", "kind": "decision", "question": "How to handle the 15 React-18-incompatible plugins — fork, replace, or polyfill?", "options": [{ "label": "Fork and maintain internally" }, { "label": "Replace with React-18-native alternatives" }, { "label": "Wrap with compatibility shim" }], "chosen": "Replace with React-18-native alternatives", "rationale": "Forks create maintenance overhead; shims hide real issues." },
+      { "id": "risk-concurrent-mode", "kind": "risk", "description": "React 18 StrictMode double-invokes effects — may expose bugs in components with side effects", "likelihood": "M", "impact": "M", "mitigation": "Run StrictMode in staging for 2 sprints before enabling in production build" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-dep-upgrade",
+    "title": "React 16 / Webpack 4 / Babel 6 → 18 / 5 / 7 upgrade",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-upgrade", "kind": "objective", "text": "Upgrade React 16→18, Webpack 4→5, Babel 6→7 with all 200 components functioning, VR tests green, and no new CVEs", "successCriteria": ["All 200 components render correctly in React 18", "Bundle size within 5% of pre-upgrade baseline", "Zero high-severity CVEs in dependency tree", "Incompatible plugins have documented replacements or forks"] },
+      { "id": "task-vr-baseline-dep", "kind": "task", "title": "Capture VR baseline on current React 16 before any upgrades", "status": "todo", "deps": [], "acceptance": ["VR snapshots captured for all 200 components", "Baseline stored in CI artifact"] },
+      { "id": "task-plugin-audit", "kind": "task", "title": "Audit the 15 incompatible plugins and classify each", "status": "todo", "deps": ["task-vr-baseline-dep"], "acceptance": ["Each plugin: fork / replace / wrap / wait classified", "Forkable plugins identified with maintenance owners"] },
+      { "id": "task-babel-upgrade", "kind": "task", "title": "Upgrade Babel 6 → 7 on a feature branch", "status": "todo", "deps": ["task-plugin-audit"], "acceptance": ["Build succeeds with Babel 7", "All existing tests green"] },
+      { "id": "task-webpack-upgrade", "kind": "task", "title": "Upgrade Webpack 4 → 5 (module federation compatible)", "status": "todo", "deps": ["task-babel-upgrade"], "acceptance": ["Dev server and production build both succeed", "Bundle size comparison documented"] },
+      { "id": "task-react-upgrade", "kind": "task", "title": "Upgrade React 16 → 18 and enable concurrent features opt-in", "status": "todo", "deps": ["task-webpack-upgrade"], "acceptance": ["All 200 components render in React 18 StrictMode", "VR snapshot tests pass"] },
+      { "id": "task-plugin-replacements", "kind": "task", "title": "Replace or fork all 15 incompatible plugins", "status": "todo", "deps": ["task-plugin-audit", "task-react-upgrade"], "acceptance": ["Each plugin replaced or forked", "No plugin references React 16 internals"] },
+      { "id": "dec-plugin-strategy", "kind": "decision", "question": "How to handle the 15 React-18-incompatible plugins — fork, replace, or polyfill?", "options": [{ "label": "Fork and maintain internally" }, { "label": "Replace with React-18-native alternatives" }, { "label": "Wrap with compatibility shim" }], "chosen": "Replace with React-18-native alternatives", "rationale": "Forks create maintenance overhead; shims hide real issues." },
+      { "id": "risk-concurrent-mode", "kind": "risk", "description": "React 18 StrictMode double-invokes effects — may expose bugs in components with side effects", "likelihood": "M", "impact": "M", "mitigation": "Run StrictMode in staging for 2 sprints before enabling in production build" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-upgrade",
+    "task-plugin-audit",
+    "task-babel-upgrade",
+    "task-webpack-upgrade",
+    "task-react-upgrade",
+    "risk-concurrent-mode"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-incompatible-plugins",
+    "newId": "dec-plugin-strategy",
+    "kind": "decision",
+    "note": "Same decision about handling incompatible plugins, but id changed from dec-incompatible-plugins to dec-plugin-strategy. AC-13 re-anchoring must map comments from dec-incompatible-plugins to dec-plugin-strategy."
+  },
+  "decoy": {
+    "id": "task-plugin-replacements",
+    "kind": "task",
+    "resemblesOldId": "task-plugin-audit",
+    "note": "Genuinely new block. Shares surface tokens 'plugin', 'React', and '15' with task-plugin-audit. A comment on task-plugin-audit must stay on task-plugin-audit, not migrate to task-plugin-replacements."
+  },
+  "notes": "Renumbering pressure: task-vr-baseline-dep inserted at position 1 shifts all subsequent tasks; task-plugin-replacements inserted before dec block; dec-incompatible-plugins renamed to dec-plugin-strategy. Positional scheme loses alignment after leading task insertion."
+}

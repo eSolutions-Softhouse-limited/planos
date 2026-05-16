@@ -1,0 +1,5 @@
+{
+  "name": "plannotator-stub-a",
+  "version": "0.0.1",
+  "description": "Coexistence-spike stub: a SECOND plugin that also matches EnterPlanMode (PreToolUse) and ExitPlanMode (PermissionRequest), to observe Claude Code multi-plugin hook dispatch. Not shipped — tests/spike only."
+}

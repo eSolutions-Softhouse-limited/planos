@@ -1,0 +1,60 @@
+{
+  "name": "refac-05-css-to-design-tokens",
+  "schemaVersion": 1,
+  "initialPrompt": "Our design system has 12,000 lines of CSS with hardcoded hex values, pixel sizes, and z-index magic numbers scattered everywhere. The design team just finished a rebrand and we need to change 40 colours — which will touch hundreds of files if we do it manually. I want to: extract all values into design tokens (W3C format), wire them into our Tailwind config and our component library, and make future rebrands a single-file change.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-design-tokens",
+    "title": "CSS hardcoded values → W3C design tokens",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-tokens", "kind": "objective", "text": "Replace all hardcoded CSS values with W3C design tokens wired into Tailwind and the component library", "successCriteria": ["Zero hardcoded hex values in component CSS", "Rebrand achievable by editing tokens.json only", "Visual regression tests pass after token swap"] },
+      { "id": "task-audit-values", "kind": "task", "title": "Audit all hardcoded values in CSS codebase", "status": "todo", "deps": [], "acceptance": ["All hex, px, z-index, shadow values catalogued", "Duplicate and near-duplicate values identified"] },
+      { "id": "task-token-schema", "kind": "task", "title": "Define W3C token schema and initial tokens.json", "status": "todo", "deps": ["task-audit-values"], "acceptance": ["tokens.json covers all audit values", "Schema validated against W3C DTCG spec"] },
+      { "id": "task-tailwind-wire", "kind": "task", "title": "Wire design tokens into Tailwind config", "status": "todo", "deps": ["task-token-schema"], "acceptance": ["Tailwind generates classes from tokens", "No hardcoded values remain in tailwind.config.js"] },
+      { "id": "task-component-lib", "kind": "task", "title": "Replace hardcoded values in component library CSS", "status": "todo", "deps": ["task-tailwind-wire"], "acceptance": ["All component CSS uses token references", "Visual regression baseline updated"] },
+      { "id": "dec-token-format", "kind": "decision", "question": "Use W3C DTCG JSON format or Style Dictionary extended format?", "options": [{ "label": "W3C DTCG JSON" }, { "label": "Style Dictionary" }], "chosen": "W3C DTCG JSON", "rationale": "Standard format; tooling ecosystem growing rapidly." },
+      { "id": "oq-dark-mode", "kind": "openQuestion", "question": "Should dark-mode token variants be included in the initial token set or deferred to a follow-on?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-design-tokens",
+    "title": "CSS hardcoded values → W3C design tokens",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-tokens", "kind": "objective", "text": "Replace all hardcoded CSS values with W3C design tokens wired into Tailwind and the component library, with automated enforcement", "successCriteria": ["Zero hardcoded hex values in component CSS", "Rebrand achievable by editing tokens.json only", "Visual regression tests pass after token swap", "CI lint rule blocks new hardcoded values"] },
+      { "id": "task-vr-baseline", "kind": "task", "title": "Capture visual regression baseline before any token changes", "status": "todo", "deps": [], "acceptance": ["Screenshots captured for all 80 component stories", "Baseline committed to VR snapshot store"] },
+      { "id": "task-audit-values", "kind": "task", "title": "Audit all hardcoded values in CSS codebase", "status": "todo", "deps": ["task-vr-baseline"], "acceptance": ["All hex, px, z-index, shadow values catalogued", "Duplicate and near-duplicate values identified"] },
+      { "id": "task-token-schema", "kind": "task", "title": "Define W3C token schema and initial tokens.json", "status": "todo", "deps": ["task-audit-values"], "acceptance": ["tokens.json covers all audit values", "Schema validated against W3C DTCG spec"] },
+      { "id": "task-tailwind-wire", "kind": "task", "title": "Wire design tokens into Tailwind config", "status": "todo", "deps": ["task-token-schema"], "acceptance": ["Tailwind generates classes from tokens", "No hardcoded values remain in tailwind.config.js"] },
+      { "id": "task-component-lib", "kind": "task", "title": "Replace hardcoded values in component library CSS", "status": "todo", "deps": ["task-tailwind-wire"], "acceptance": ["All component CSS uses token references", "Visual regression baseline updated"] },
+      { "id": "task-ci-token-lint", "kind": "task", "title": "Add CI lint rule to block new hardcoded colour values", "status": "todo", "deps": ["task-component-lib"], "acceptance": ["CI fails on any PR introducing bare hex values", "Rule documented in contributing guide"] },
+      { "id": "dec-token-toolchain", "kind": "decision", "question": "Use W3C DTCG JSON format or Style Dictionary extended format?", "options": [{ "label": "W3C DTCG JSON" }, { "label": "Style Dictionary" }], "chosen": "W3C DTCG JSON", "rationale": "Standard format; tooling ecosystem growing rapidly." },
+      { "id": "oq-dark-mode", "kind": "openQuestion", "question": "Should dark-mode token variants be included in the initial token set or deferred to a follow-on?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-tokens",
+    "task-audit-values",
+    "task-token-schema",
+    "task-tailwind-wire",
+    "task-component-lib",
+    "oq-dark-mode"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-token-format",
+    "newId": "dec-token-toolchain",
+    "kind": "decision",
+    "note": "Same decision about DTCG vs Style Dictionary, but the id changed from dec-token-format to dec-token-toolchain during revise. AC-13 must map comments from dec-token-format to dec-token-toolchain."
+  },
+  "decoy": {
+    "id": "task-ci-token-lint",
+    "kind": "task",
+    "resemblesOldId": "task-component-lib",
+    "note": "Genuinely new block. Shares surface tokens 'CSS', 'component', and 'values' with task-component-lib. A comment on task-component-lib must stay on task-component-lib, not migrate to task-ci-token-lint."
+  },
+  "notes": "Renumbering pressure: task-vr-baseline inserted at position 1 shifts all subsequent blocks; task-ci-token-lint inserted before dec block; dec-token-format renamed to dec-token-toolchain. oq-dark-mode kept its id. Positional scheme breaks after leading task insertion."
+}

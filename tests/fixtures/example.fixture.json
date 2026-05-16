@@ -1,0 +1,60 @@
+{
+  "name": "example-search-indexing-feature",
+  "schemaVersion": 1,
+  "initialPrompt": "We need to add full-text search to the docs site. Users keep complaining they can't find anything. I want: a search index built at deploy time, a search box in the header that does instant client-side filtering, and keyboard nav (arrow keys + enter) for the results dropdown. Also figure out whether we host the index ourselves or use a service — I don't want a monthly bill if we can avoid it.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-docs-search",
+    "title": "Full-text search for the docs site",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T12:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-search", "kind": "objective", "text": "Make docs content findable via in-page full-text search", "successCriteria": ["query returns relevant pages in <100ms", "no monthly hosting bill"] },
+      { "id": "dec-host-vs-service", "kind": "decision", "question": "Self-host the index or use a hosted search service?", "options": [{ "label": "Self-host static index" }, { "label": "Hosted service" }], "chosen": "Self-host static index", "rationale": "Avoids recurring cost; index is small." },
+      { "id": "task-build-index", "kind": "task", "title": "Build search index at deploy time", "status": "todo", "deps": [], "acceptance": ["index.json emitted in build output", "covers all published pages"] },
+      { "id": "task-search-box", "kind": "task", "title": "Add header search box with instant client-side filtering", "status": "todo", "deps": ["task-build-index"], "acceptance": ["typing filters results live"] },
+      { "id": "task-kbd-nav", "kind": "task", "title": "Keyboard navigation for results dropdown", "status": "todo", "deps": ["task-search-box"], "acceptance": ["arrow keys move selection", "enter opens page"] },
+      { "id": "risk-index-size", "kind": "risk", "description": "Index could grow large enough to hurt first-load", "likelihood": "M", "impact": "M", "mitigation": "lazy-load index on first search interaction" },
+      { "id": "oq-stemming", "kind": "openQuestion", "question": "Do we need stemming/fuzzy matching for v1, or is prefix match enough?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-docs-search",
+    "title": "Full-text search for the docs site",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T12:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-search", "kind": "objective", "text": "Make docs content findable via in-page full-text search with sub-100ms queries", "successCriteria": ["query returns relevant pages in <100ms", "no monthly hosting bill", "works offline once loaded"] },
+      { "id": "task-spike-index-size", "kind": "task", "title": "Spike: measure real index size on current docs corpus", "status": "todo", "deps": [], "acceptance": ["index size for full corpus reported", "decision input for lazy-load"] },
+      { "id": "dec-host-vs-service", "kind": "decision", "question": "Self-host the index or use a hosted search service?", "options": [{ "label": "Self-host static index" }, { "label": "Hosted service" }], "chosen": "Self-host static index", "rationale": "Avoids recurring cost; spike confirms index stays small." },
+      { "id": "task-build-index", "kind": "task", "title": "Build search index at deploy time", "status": "todo", "deps": ["task-spike-index-size"], "acceptance": ["index.json emitted in build output", "covers all published pages"] },
+      { "id": "task-search-box", "kind": "task", "title": "Add header search box with instant client-side filtering", "status": "todo", "deps": ["task-build-index"], "acceptance": ["typing filters results live", "debounced to 50ms"] },
+      { "id": "task-kbd-nav", "kind": "task", "title": "Keyboard navigation for results dropdown", "status": "todo", "deps": ["task-search-box"], "acceptance": ["arrow keys move selection", "enter opens page", "escape closes dropdown"] },
+      { "id": "task-kbd-shortcut-focus", "kind": "task", "title": "Add '/' keyboard shortcut to focus the search box", "status": "todo", "deps": ["task-search-box"], "acceptance": ["pressing / focuses search from anywhere"] },
+      { "id": "risk-index-size", "kind": "risk", "description": "Index could grow large enough to hurt first-load", "likelihood": "M", "impact": "M", "mitigation": "lazy-load index on first search interaction" },
+      { "id": "oq-fuzzy-v2", "kind": "openQuestion", "question": "Do we need stemming/fuzzy matching for v1, or is prefix match enough?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-search",
+    "dec-host-vs-service",
+    "task-build-index",
+    "task-search-box",
+    "task-kbd-nav",
+    "risk-index-size"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-stemming",
+    "newId": "oq-fuzzy-v2",
+    "kind": "openQuestion",
+    "note": "Same intent (stemming/fuzzy vs prefix match) but the agent renumbered the open-question id during revise. Its ID legitimately changed, so it is NOT in expectedPreservedIds; the AC-13 re-anchoring fallback must map a comment on oq-stemming to oq-fuzzy-v2 via kind-gated Jaccard."
+  },
+  "decoy": {
+    "id": "task-kbd-shortcut-focus",
+    "kind": "task",
+    "resemblesOldId": "task-kbd-nav",
+    "note": "Genuinely-new block. Shares the surface tokens 'keyboard' and 'search box' with task-kbd-nav, making it a real trap for the re-anchoring fallback. A comment originally on task-kbd-nav must re-attach to task-kbd-nav (which kept its id), NOT to this decoy."
+  },
+  "notes": "Renumbering pressure is real: a spike task is inserted near the top (positional shift), a second new keyboard task is inserted, and the open-question id is renumbered. A naive positional ID scheme would lose obj/dec/task-build alignment after the inserted spike. expectedPreservedIds deliberately EXCLUDES oq-stemming (its id changed) and the two new tasks (genuinely new), so the AC-12 denominator is 6 and the fixture does not trivially preserve all ids."
+}

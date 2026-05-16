@@ -1,0 +1,60 @@
+{
+  "name": "invest-06-p99-latency-regression",
+  "schemaVersion": 1,
+  "initialPrompt": "After last Tuesday's deploy p99 API latency jumped from 120 ms to 900 ms and hasn't recovered. The deploy included three changes: a new ORM version bump, a schema migration adding two indexes, and a new background job that runs every minute. I need a plan to: bisect which change caused the regression, measure the impact precisely, fix it, and add a latency regression gate to our deploy pipeline so we catch this automatically next time.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-p99-regression",
+    "title": "p99 latency regression investigation and pipeline gate",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-latency-recovery", "kind": "objective", "text": "Restore p99 API latency to ≤ 150 ms and prevent future undetected regressions", "successCriteria": ["p99 ≤ 150 ms in production for 48 h", "deploy pipeline blocks on latency regression > 20%", "root cause documented"] },
+      { "id": "task-bisect-deploy", "kind": "task", "title": "Bisect the three deploy changes by reverting each in a staging shadow environment", "status": "todo", "deps": [], "acceptance": ["each revert tested in isolation under prod-like load", "culprit change identified with evidence"] },
+      { "id": "task-trace-slow-requests", "kind": "task", "title": "Enable distributed tracing on the slow p99 requests to find the bottleneck span", "status": "todo", "deps": ["task-bisect-deploy"], "acceptance": ["trace shows which service call or query is the slow span", "p99 span time breakdown exported"] },
+      { "id": "dec-fix-approach", "kind": "decision", "question": "Once the culprit is identified, should we revert the change or forward-fix it?", "options": [{ "label": "Revert the culprit change" }, { "label": "Forward-fix with targeted optimization" }] },
+      { "id": "task-apply-fix", "kind": "task", "title": "Apply the chosen fix and validate p99 returns to baseline in staging", "status": "todo", "deps": ["task-trace-slow-requests"], "acceptance": ["p99 ≤ 150 ms in staging load test", "fix reviewed and merged"] },
+      { "id": "risk-background-job-contention", "kind": "risk", "description": "Background job running every minute may hold locks that spike p99 periodically", "likelihood": "M", "impact": "M", "mitigation": "Check job execution overlap with p99 spikes; add jitter to job schedule" },
+      { "id": "oq-canary-deploy", "kind": "openQuestion", "question": "Do we have a canary deploy capability to route 5% of traffic to a new build before full rollout?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-p99-regression",
+    "title": "p99 latency regression investigation and pipeline gate",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-latency-recovery", "kind": "objective", "text": "Restore p99 API latency to ≤ 150 ms and prevent future undetected regressions", "successCriteria": ["p99 ≤ 150 ms in production for 48 h", "deploy pipeline blocks on latency regression > 20%", "root cause documented", "on-call runbook updated with regression investigation steps"] },
+      { "id": "task-timeline-correlation", "kind": "task", "title": "Correlate deploy timestamp with p99 spike in observability tooling before bisecting", "status": "todo", "deps": [], "acceptance": ["deploy event marked on Grafana timeline", "spike confirmed to start within 5 min of deploy"] },
+      { "id": "task-bisect-deploy", "kind": "task", "title": "Bisect the three deploy changes by reverting each in a staging shadow environment", "status": "todo", "deps": ["task-timeline-correlation"], "acceptance": ["each revert tested in isolation under prod-like load", "culprit change identified with evidence"] },
+      { "id": "task-trace-slow-requests", "kind": "task", "title": "Enable distributed tracing on the slow p99 requests to find the bottleneck span", "status": "todo", "deps": ["task-bisect-deploy"], "acceptance": ["trace shows which service call or query is the slow span", "p99 span time breakdown exported"] },
+      { "id": "dec-fix-approach", "kind": "decision", "question": "Once the culprit is identified, should we revert the change or forward-fix it?", "options": [{ "label": "Revert the culprit change" }, { "label": "Forward-fix with targeted optimization" }], "chosen": "Revert the culprit change", "rationale": "Speed of recovery is paramount; a clean revert is fastest and lowest risk." },
+      { "id": "task-apply-fix", "kind": "task", "title": "Apply the chosen fix and validate p99 returns to baseline in staging", "status": "todo", "deps": ["task-trace-slow-requests"], "acceptance": ["p99 ≤ 150 ms in staging load test", "fix reviewed and merged"] },
+      { "id": "task-pipeline-gate", "kind": "task", "title": "Add latency regression gate to deploy pipeline using k6 smoke test", "status": "todo", "deps": ["task-apply-fix"], "acceptance": ["deploy aborts if p99 > baseline + 20% after smoke test", "gate tested by deliberately introducing a regression"] },
+      { "id": "risk-background-job-contention", "kind": "risk", "description": "Background job running every minute may hold locks that spike p99 periodically", "likelihood": "M", "impact": "M", "mitigation": "Check job execution overlap with p99 spikes; add jitter to job schedule" },
+      { "id": "oq-canary-support", "kind": "openQuestion", "question": "Do we have a canary deploy capability to route 5% of traffic to a new build before full rollout?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-latency-recovery",
+    "task-bisect-deploy",
+    "task-trace-slow-requests",
+    "dec-fix-approach",
+    "task-apply-fix",
+    "risk-background-job-contention"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-canary-deploy",
+    "newId": "oq-canary-support",
+    "kind": "openQuestion",
+    "note": "Same intent (canary deploy capability) but id renamed. AC-13 re-anchoring maps a comment on oq-canary-deploy to oq-canary-support."
+  },
+  "decoy": {
+    "id": "task-pipeline-gate",
+    "kind": "task",
+    "resemblesOldId": "task-apply-fix",
+    "note": "Genuinely new block. Shares surface tokens 'deploy', 'staging', and 'latency' with task-apply-fix. A comment on task-apply-fix must stay there, not mis-attach to task-pipeline-gate."
+  },
+  "notes": "Renumbering pressure: task-timeline-correlation inserted near top; task-pipeline-gate appended as genuinely new; oq-canary-deploy renamed. Naive positional scheme would mis-map task-bisect-deploy onward. expectedPreservedIds excludes renamed OQ and both new tasks."
+}

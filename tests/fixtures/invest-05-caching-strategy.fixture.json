@@ -1,0 +1,60 @@
+{
+  "name": "invest-05-caching-strategy",
+  "schemaVersion": 1,
+  "initialPrompt": "Our product catalog API is hitting the database on every request and the DB is at 90% CPU. Most of this data changes less than once a day. I need a plan to: evaluate whether to cache at the application layer (Redis), CDN edge, or both; design the cache invalidation strategy so users never see stale prices; and implement it with a rollout plan that lets us measure the hit rate and roll back if something goes wrong.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-caching-strategy",
+    "title": "Product catalog caching: strategy evaluation and rollout",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-cache-offload", "kind": "objective", "text": "Reduce DB CPU from 90% to under 40% by caching product catalog responses", "successCriteria": ["DB CPU < 40% at peak", "cache hit rate > 90%", "no stale price shown to users"] },
+      { "id": "dec-cache-layer", "kind": "decision", "question": "Cache at application layer (Redis), CDN edge, or both?", "options": [{ "label": "Redis application cache only" }, { "label": "CDN edge cache only" }, { "label": "Both: CDN for public, Redis for authenticated" }] },
+      { "id": "task-profile-read-patterns", "kind": "task", "title": "Profile catalog read patterns: identify hot keys and per-endpoint request rates", "status": "todo", "deps": [], "acceptance": ["top-20 most-requested catalog endpoints listed", "per-key TTL recommendation per endpoint"] },
+      { "id": "task-invalidation-design", "kind": "task", "title": "Design cache invalidation strategy triggered on price/inventory write events", "status": "todo", "deps": ["task-profile-read-patterns"], "acceptance": ["invalidation flow documented", "max stale window defined per entity type"] },
+      { "id": "task-redis-impl", "kind": "task", "title": "Implement Redis cache layer with per-key TTL and write-through invalidation", "status": "todo", "deps": ["task-invalidation-design"], "acceptance": ["cache hit rate > 90% in staging load test", "stale-price scenario tested and confirmed safe"] },
+      { "id": "risk-cache-stampede", "kind": "risk", "description": "Mass cache expiry causes thundering herd back to DB", "likelihood": "M", "impact": "H", "mitigation": "Jitter TTLs by ±10%; use probabilistic early recompute (PER algorithm)" },
+      { "id": "oq-auth-vs-public", "kind": "openQuestion", "question": "Do authenticated users see the same catalog prices as anonymous visitors, or are there per-account pricing tiers?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-caching-strategy",
+    "title": "Product catalog caching: strategy evaluation and rollout",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-cache-offload", "kind": "objective", "text": "Reduce DB CPU from 90% to under 40% by caching product catalog responses", "successCriteria": ["DB CPU < 40% at peak", "cache hit rate > 90%", "no stale price shown to users", "rollback completes in < 5 min if cache returns wrong data"] },
+      { "id": "task-current-db-hotspots", "kind": "task", "title": "Identify current DB hotspots with pg_stat_statements before adding any cache", "status": "todo", "deps": [], "acceptance": ["top-10 slow queries from catalog service exported", "% of DB CPU attributable to catalog confirmed"] },
+      { "id": "dec-cache-layer", "kind": "decision", "question": "Cache at application layer (Redis), CDN edge, or both?", "options": [{ "label": "Redis application cache only" }, { "label": "CDN edge cache only" }, { "label": "Both: CDN for public, Redis for authenticated" }], "chosen": "Both: CDN for public, Redis for authenticated", "rationale": "Public catalog pages get maximum offload at CDN; per-account pricing stays server-side in Redis." },
+      { "id": "task-profile-read-patterns", "kind": "task", "title": "Profile catalog read patterns: identify hot keys and per-endpoint request rates", "status": "todo", "deps": ["task-current-db-hotspots"], "acceptance": ["top-20 most-requested catalog endpoints listed", "per-key TTL recommendation per endpoint"] },
+      { "id": "task-invalidation-design", "kind": "task", "title": "Design cache invalidation strategy triggered on price/inventory write events", "status": "todo", "deps": ["task-profile-read-patterns"], "acceptance": ["invalidation flow documented", "max stale window defined per entity type"] },
+      { "id": "task-redis-impl", "kind": "task", "title": "Implement Redis cache layer with per-key TTL and write-through invalidation", "status": "todo", "deps": ["task-invalidation-design"], "acceptance": ["cache hit rate > 90% in staging load test", "stale-price scenario tested and confirmed safe"] },
+      { "id": "task-rollout-flags", "kind": "task", "title": "Add feature flags for cache layer so each endpoint can be rolled back independently", "status": "todo", "deps": ["task-redis-impl"], "acceptance": ["flag per endpoint group in LaunchDarkly", "rollback tested end-to-end in staging"] },
+      { "id": "risk-cache-stampede", "kind": "risk", "description": "Mass cache expiry causes thundering herd back to DB", "likelihood": "M", "impact": "H", "mitigation": "Jitter TTLs by ±10%; use probabilistic early recompute (PER algorithm)" },
+      { "id": "oq-per-account-pricing", "kind": "openQuestion", "question": "Do authenticated users see the same catalog prices as anonymous visitors, or are there per-account pricing tiers?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-cache-offload",
+    "dec-cache-layer",
+    "task-profile-read-patterns",
+    "task-invalidation-design",
+    "task-redis-impl",
+    "risk-cache-stampede"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-auth-vs-public",
+    "newId": "oq-per-account-pricing",
+    "kind": "openQuestion",
+    "note": "Same intent (whether authenticated vs anonymous users see different prices) but id renamed. AC-13 re-anchoring maps a comment on oq-auth-vs-public to oq-per-account-pricing."
+  },
+  "decoy": {
+    "id": "task-rollout-flags",
+    "kind": "task",
+    "resemblesOldId": "task-redis-impl",
+    "note": "Genuinely new block. Shares surface tokens 'cache', 'rollback', and 'staging' with task-redis-impl. A comment on task-redis-impl must stay there, not mis-attach to task-rollout-flags."
+  },
+  "notes": "Renumbering pressure: task-current-db-hotspots inserted near top shifting positional alignment; task-rollout-flags appended as new; oq-auth-vs-public renamed. Naive positional scheme mis-maps dec-cache-layer onward. expectedPreservedIds excludes renamed OQ and both new tasks."
+}

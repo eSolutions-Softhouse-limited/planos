@@ -1,0 +1,62 @@
+{
+  "name": "feat-02-notification-center",
+  "schemaVersion": 1,
+  "initialPrompt": "Users have no idea when things happen in the app. I need a notification center: a bell icon in the nav that shows unread count, a dropdown panel listing recent notifications (comment replies, mentions, system alerts), mark-as-read both individually and all-at-once, and push notifications via browser Web Push for critical alerts. Also let users configure which event types they want to receive.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-notification-center",
+    "title": "Notification center with Web Push",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-notifications", "kind": "objective", "text": "Keep users informed of relevant activity without overwhelming them", "successCriteria": ["unread count visible in nav", "Web Push delivered within 5 s of event", "users can silence any event category"] },
+      { "id": "task-bell-ui", "kind": "task", "title": "Build bell icon with unread badge in nav", "status": "todo", "deps": [], "acceptance": ["badge shows count", "updates in real-time via WebSocket", "animates on new notification"] },
+      { "id": "task-dropdown-panel", "kind": "task", "title": "Build notification dropdown panel", "status": "todo", "deps": ["task-bell-ui"], "acceptance": ["lists last 50 notifications", "shows type, message, timestamp", "links to relevant resource"] },
+      { "id": "task-mark-read", "kind": "task", "title": "Implement mark-as-read (individual and bulk)", "status": "todo", "deps": ["task-dropdown-panel"], "acceptance": ["single click marks one read", "mark-all clears badge", "state persists across reload"] },
+      { "id": "task-web-push", "kind": "task", "title": "Integrate browser Web Push for critical alerts", "status": "todo", "deps": [], "acceptance": ["permission prompt shown on opt-in", "push arrives when tab is closed", "payload includes action URL"] },
+      { "id": "dec-storage-backend", "kind": "decision", "question": "Where do we store notification records?", "options": [{ "label": "Dedicated notifications table in Postgres" }, { "label": "Redis with TTL" }], "chosen": "Dedicated notifications table in Postgres", "rationale": "Need durable history and per-user queries." },
+      { "id": "risk-push-permission", "kind": "risk", "description": "Most users deny push permission, making Web Push useless", "likelihood": "H", "impact": "M", "mitigation": "Gate prompt behind user action; in-app fallback always available" },
+      { "id": "oq-retention-days", "kind": "openQuestion", "question": "How many days of notification history should we retain per user?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-notification-center",
+    "title": "Notification center with Web Push",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-notifications", "kind": "objective", "text": "Keep users informed of relevant activity without overwhelming them", "successCriteria": ["unread count visible in nav", "Web Push delivered within 5 s of event", "users can silence any event category"] },
+      { "id": "task-notif-prefs", "kind": "task", "title": "Build notification preferences UI (per-category toggles)", "status": "todo", "deps": [], "acceptance": ["each event category can be toggled on/off", "preferences persisted per user", "email and push toggled independently"] },
+      { "id": "task-bell-ui", "kind": "task", "title": "Build bell icon with unread badge in nav", "status": "todo", "deps": [], "acceptance": ["badge shows count", "updates in real-time via WebSocket", "animates on new notification"] },
+      { "id": "task-dropdown-panel", "kind": "task", "title": "Build notification dropdown panel", "status": "todo", "deps": ["task-bell-ui"], "acceptance": ["lists last 50 notifications", "shows type, message, timestamp", "links to relevant resource"] },
+      { "id": "task-mark-read", "kind": "task", "title": "Implement mark-as-read (individual and bulk)", "status": "todo", "deps": ["task-dropdown-panel"], "acceptance": ["single click marks one read", "mark-all clears badge", "state persists across reload"] },
+      { "id": "task-push-integration-v2", "kind": "task", "title": "Integrate browser Web Push and service worker for critical alerts", "status": "todo", "deps": ["task-notif-prefs"], "acceptance": ["permission prompt shown on opt-in", "push arrives when tab is closed", "payload includes action URL", "service worker handles click routing"] },
+      { "id": "dec-storage-backend", "kind": "decision", "question": "Where do we store notification records?", "options": [{ "label": "Dedicated notifications table in Postgres" }, { "label": "Redis with TTL" }], "chosen": "Dedicated notifications table in Postgres", "rationale": "Need durable history and per-user queries." },
+      { "id": "risk-push-permission", "kind": "risk", "description": "Most users deny push permission, making Web Push useless", "likelihood": "H", "impact": "M", "mitigation": "Gate prompt behind user action; in-app fallback always available" },
+      { "id": "oq-retention-days", "kind": "openQuestion", "question": "How many days of notification history should we retain per user?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-notifications",
+    "task-bell-ui",
+    "task-dropdown-panel",
+    "task-mark-read",
+    "dec-storage-backend",
+    "risk-push-permission",
+    "oq-retention-days"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "task-web-push",
+    "newId": "task-push-integration-v2",
+    "kind": "task",
+    "note": "Same intent (Web Push integration for critical alerts) but the agent expanded scope to include service worker and renamed the id during revise. AC-13 re-anchoring fallback must map comments on task-web-push to task-push-integration-v2."
+  },
+  "decoy": {
+    "id": "task-notif-prefs",
+    "kind": "task",
+    "resemblesOldId": "task-mark-read",
+    "note": "Genuinely-new block. Shares surface tokens 'notification' and 'preferences/read' with task-mark-read, a real trap. A comment on task-mark-read must re-attach to task-mark-read (id preserved), NOT to this new preferences task."
+  },
+  "notes": "Renumbering pressure: task-notif-prefs inserted second (before task-bell-ui), shifting all positions; task-web-push id changed to task-push-integration-v2. Naive positional scheme loses alignment for task-bell-ui onward. Denominator is 7."
+}

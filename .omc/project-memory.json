@@ -1,0 +1,439 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1778922782831,
+  "projectRoot": "/Users/ggiak/www/esolutions.gr/planos",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "react",
+        "version": "19.1.0",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.1.0",
+        "category": "frontend"
+      },
+      {
+        "name": "vite",
+        "version": "6.3.5",
+        "category": "build"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; echo \"=== offline suite ===\"; node --test tests/*.test.mjs tests/harness/*.test.mjs 2>&1 | grep -E '^(ℹ |# )(tests|pass|fail|cancelled)'; echo \"=== tsc ===\"; npx tsc --noEmit 2>&1 | tail -1; echo \"tsc_exit=$?\"; echo \"=== AC-17 import-graph ===\"; node tests/harness/import-graph.mjs 2>&1 | tail -1; echo \"=== exit gate ===\"; node tests/harness/verify-exit-gate.mjs 2>&1 | tail -3; echo \"gate_exit=$?\"",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {
+      "build:editor": "vite build"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 1,
+      "lastAccessed": 1778922782805,
+      "keyFiles": [
+        "design.md"
+      ]
+    },
+    "plugin": {
+      "path": "plugin",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1778922782805,
+      "keyFiles": []
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1778922782814,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 16,
+      "lastAccessed": 1778922782814,
+      "keyFiles": [
+        "ac17-invariant.test.mjs",
+        "diff.test.mjs",
+        "editor-render.test.mjs",
+        "enter.test.mjs",
+        "envelope-emit.test.mjs"
+      ]
+    },
+    "plugin/bin": {
+      "path": "plugin/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 1,
+      "lastAccessed": 1778922782814,
+      "keyFiles": [
+        "planos"
+      ]
+    },
+    "plugin/dist": {
+      "path": "plugin/dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 1,
+      "lastAccessed": 1778922782814,
+      "keyFiles": [
+        "index.html"
+      ]
+    },
+    "tests/fixtures": {
+      "path": "tests/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 2,
+      "lastAccessed": 1778922782815,
+      "keyFiles": [
+        "example.fixture.json",
+        "fixture-format.md"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "tests/fixtures/example.fixture.json",
+      "accessCount": 6,
+      "lastAccessed": 1778923867138,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/fixture-format.md",
+      "accessCount": 4,
+      "lastAccessed": 1778923303311,
+      "type": "file"
+    },
+    {
+      "path": "src/hook/enter.mjs",
+      "accessCount": 4,
+      "lastAccessed": 1778923307044,
+      "type": "file"
+    },
+    {
+      "path": "src/schema/id-strategy.mjs",
+      "accessCount": 4,
+      "lastAccessed": 1778924978935,
+      "type": "file"
+    },
+    {
+      "path": "src/schema/index.mjs",
+      "accessCount": 3,
+      "lastAccessed": 1778923307251,
+      "type": "file"
+    },
+    {
+      "path": "src/schema/validate.mjs",
+      "accessCount": 3,
+      "lastAccessed": 1778923310510,
+      "type": "file"
+    },
+    {
+      "path": "tests/harness/runner.mjs",
+      "accessCount": 3,
+      "lastAccessed": 1778923996835,
+      "type": "file"
+    },
+    {
+      "path": "tests/harness/result-shape.test.mjs",
+      "accessCount": 2,
+      "lastAccessed": 1778924012836,
+      "type": "file"
+    },
+    {
+      "path": "tests/spike/plugin-b/hooks/hooks.json",
+      "accessCount": 2,
+      "lastAccessed": 1778924347752,
+      "type": "file"
+    },
+    {
+      "path": "tests/spike/plugin-b/bin/stub",
+      "accessCount": 2,
+      "lastAccessed": 1778924360235,
+      "type": "file"
+    },
+    {
+      "path": "docs/design.md",
+      "accessCount": 1,
+      "lastAccessed": 1778923055631,
+      "type": "file"
+    },
+    {
+      "path": "src/hook/exit.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778923072871,
+      "type": "file"
+    },
+    {
+      "path": "tests/harness/metrics.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778923095904,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-01-checkout-flow.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923319631,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-01-monolith-to-modules.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923334825,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-02-notification-center.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923347533,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-01-memory-leak-hunt.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923357123,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-02-orm-migration.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923362609,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-03-file-upload.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923374933,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-02-slow-query-triage.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923386713,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-03-rest-to-graphql.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923387157,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-04-dashboard-widgets.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923400198,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-04-callback-to-async.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923412222,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-03-flaky-test-rootcause.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923414044,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-05-onboarding-wizard.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923431717,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-05-css-to-design-tokens.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923440747,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-04-queue-tech-choice.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923440894,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-06-search-filters.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923457294,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-06-test-suite-speedup.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923466770,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-05-caching-strategy.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923472190,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-07-comment-threads.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923484460,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-07-dependency-upgrade.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923493448,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-06-p99-latency-regression.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923498206,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-08-export-csv.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923510083,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-07-intermittent-500s.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923525402,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-08-logging-overhaul.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923525730,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-09-dark-mode.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923543066,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-09-config-consolidation.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923551333,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-08-db-sharding-decision.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923554682,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-10-audit-log.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923572097,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/refac-10-error-handling-unification.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923576399,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-09-security-audit-triage.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923585154,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/feat-11-rate-limiting.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923602348,
+      "type": "file"
+    },
+    {
+      "path": "tests/fixtures/invest-10-cost-spike-investigation.fixture.json",
+      "accessCount": 1,
+      "lastAccessed": 1778923613224,
+      "type": "file"
+    },
+    {
+      "path": "src/server/index.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778923689828,
+      "type": "file"
+    },
+    {
+      "path": "tests/exit-thinloop.test.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778923721735,
+      "type": "file"
+    },
+    {
+      "path": "tests/harness/live-driver.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778923947424,
+      "type": "file"
+    },
+    {
+      "path": "tests/live-driver.test.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778924049944,
+      "type": "file"
+    },
+    {
+      "path": "tests/harness/run-live.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1778924076096,
+      "type": "file"
+    },
+    {
+      "path": "tests/spike/plugin-b/.claude-plugin/plugin.json",
+      "accessCount": 1,
+      "lastAccessed": 1778924287268,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

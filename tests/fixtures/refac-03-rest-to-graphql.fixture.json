@@ -1,0 +1,60 @@
+{
+  "name": "refac-03-rest-to-graphql",
+  "schemaVersion": 1,
+  "initialPrompt": "We're migrating our public REST API to GraphQL. We have 30+ REST endpoints, several mobile clients that we can't force-upgrade immediately, and a partner integration that's locked to the current REST contract for at least 6 more months. I need a plan that: keeps REST working for partners, ships GraphQL to new mobile clients, and gives us a clear sunset timeline for the old REST layer.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-rest-to-graphql",
+    "title": "REST → GraphQL migration with parallel operation",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-graphql", "kind": "objective", "text": "Ship GraphQL API while keeping REST operational for partners through a defined sunset", "successCriteria": ["GraphQL schema covers all REST resources", "REST responses unchanged for partner integrations", "Sunset date agreed and published to partners"] },
+      { "id": "dec-schema-first", "kind": "decision", "question": "Schema-first (SDL) or code-first GraphQL schema design?", "options": [{ "label": "Schema-first SDL" }, { "label": "Code-first (e.g. TypeGraphQL)" }], "chosen": "Schema-first SDL", "rationale": "SDL is the lingua franca; easier to review with non-backend team members." },
+      { "id": "task-schema-design", "kind": "task", "title": "Design GraphQL schema covering all 30+ REST resources", "status": "todo", "deps": [], "acceptance": ["Schema reviewed by API consumers", "All REST resources representable as queries/mutations"] },
+      { "id": "task-gateway", "kind": "task", "title": "Stand up GraphQL gateway alongside REST server", "status": "todo", "deps": ["task-schema-design"], "acceptance": ["Gateway resolves all schema fields", "REST server unchanged and still green"] },
+      { "id": "task-partner-facade", "kind": "task", "title": "Implement REST facade over GraphQL resolvers for partner contract", "status": "todo", "deps": ["task-gateway"], "acceptance": ["All partner endpoint responses byte-identical to current REST", "Contract test suite green"] },
+      { "id": "risk-n-plus-one", "kind": "risk", "description": "GraphQL resolvers trigger N+1 queries without DataLoader", "likelihood": "H", "impact": "M", "mitigation": "Mandate DataLoader for all list resolvers in code review checklist" },
+      { "id": "oq-sunset-date", "kind": "openQuestion", "question": "What is the partner's contractual end date and can we negotiate an earlier REST sunset?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-rest-to-graphql",
+    "title": "REST → GraphQL migration with parallel operation",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-graphql", "kind": "objective", "text": "Ship GraphQL API while keeping REST operational for partners through a defined sunset, with performance parity validated", "successCriteria": ["GraphQL schema covers all REST resources", "REST responses unchanged for partner integrations", "Sunset date agreed and published to partners", "p99 latency within 10% of REST baseline"] },
+      { "id": "task-perf-baseline", "kind": "task", "title": "Capture REST API performance baseline before any changes", "status": "todo", "deps": [], "acceptance": ["p50/p95/p99 latency recorded per endpoint", "Baseline stored as CI artifact for regression comparison"] },
+      { "id": "dec-schema-first", "kind": "decision", "question": "Schema-first (SDL) or code-first GraphQL schema design?", "options": [{ "label": "Schema-first SDL" }, { "label": "Code-first (e.g. TypeGraphQL)" }], "chosen": "Schema-first SDL", "rationale": "SDL is the lingua franca; easier to review with non-backend team members." },
+      { "id": "task-schema-design", "kind": "task", "title": "Design GraphQL schema covering all 30+ REST resources", "status": "todo", "deps": ["task-perf-baseline"], "acceptance": ["Schema reviewed by API consumers", "All REST resources representable as queries/mutations"] },
+      { "id": "task-gateway", "kind": "task", "title": "Stand up GraphQL gateway alongside REST server", "status": "todo", "deps": ["task-schema-design"], "acceptance": ["Gateway resolves all schema fields", "REST server unchanged and still green"] },
+      { "id": "task-partner-facade", "kind": "task", "title": "Implement REST facade over GraphQL resolvers for partner contract", "status": "todo", "deps": ["task-gateway"], "acceptance": ["All partner endpoint responses byte-identical to current REST", "Contract test suite green"] },
+      { "id": "task-dataloader-lint", "kind": "task", "title": "Add DataLoader enforcement lint rule to CI", "status": "todo", "deps": ["task-gateway"], "acceptance": ["CI fails if list resolver missing DataLoader", "Rule documented in contributing guide"] },
+      { "id": "risk-n-plus-one", "kind": "risk", "description": "GraphQL resolvers trigger N+1 queries without DataLoader", "likelihood": "H", "impact": "M", "mitigation": "Mandate DataLoader for all list resolvers; enforced by CI lint rule" },
+      { "id": "oq-partner-deadline", "kind": "openQuestion", "question": "What is the partner's contractual end date and can we negotiate an earlier REST sunset?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-graphql",
+    "dec-schema-first",
+    "task-schema-design",
+    "task-gateway",
+    "task-partner-facade",
+    "risk-n-plus-one"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-sunset-date",
+    "newId": "oq-partner-deadline",
+    "kind": "openQuestion",
+    "note": "Same question about the partner sunset negotiation, but the id was changed from oq-sunset-date to oq-partner-deadline during revise. AC-13 must map comments from oq-sunset-date to oq-partner-deadline."
+  },
+  "decoy": {
+    "id": "task-dataloader-lint",
+    "kind": "task",
+    "resemblesOldId": "task-gateway",
+    "note": "Genuinely new block. Shares surface tokens 'GraphQL' and 'CI' with task-gateway context. A comment on task-gateway must stay on task-gateway, not migrate to task-dataloader-lint."
+  },
+  "notes": "Renumbering pressure: task-perf-baseline inserted near top shifts all subsequent tasks by one position; task-dataloader-lint inserted near end; oq-sunset-date renamed to oq-partner-deadline. A naive positional scheme loses obj/dec/task-schema alignment after the leading task insertion."
+}

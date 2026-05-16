@@ -1,0 +1,60 @@
+{
+  "name": "invest-07-intermittent-500s",
+  "schemaVersion": 1,
+  "initialPrompt": "We're seeing about 0.3% of API requests return 500 errors in production but we can't reproduce it locally. The errors are spread across multiple endpoints and seem to spike around traffic peaks. I need a plan to: instrument production to capture the full request/response context when a 500 occurs, identify whether it's a race condition, resource exhaustion, or a downstream dependency issue, and fix it. We also need better error reporting so we stop learning about these from user complaints.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-intermittent-500s",
+    "title": "Intermittent 500 error investigation and observability improvement",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-500-elimination", "kind": "objective", "text": "Reduce 500 error rate from 0.3% to < 0.01% and detect future incidents before users do", "successCriteria": ["500 rate < 0.01% for 14 days", "error detection time < 2 min via alerting", "root cause documented and fixed"] },
+      { "id": "task-error-capture", "kind": "task", "title": "Add structured error logging that captures request ID, user, endpoint, and stack trace for every 500", "status": "todo", "deps": [], "acceptance": ["every 500 logged to centralized log store", "log includes correlation ID linkable to trace"] },
+      { "id": "task-group-errors", "kind": "task", "title": "Group captured 500s by stack trace fingerprint to find the dominant failure mode", "status": "todo", "deps": ["task-error-capture"], "acceptance": ["top-3 error fingerprints identified", "frequency and endpoint distribution per fingerprint"] },
+      { "id": "dec-failure-category", "kind": "decision", "question": "Is the dominant 500 cause a race condition, resource exhaustion, or downstream dependency timeout?", "options": [{ "label": "Race condition / shared state" }, { "label": "Resource exhaustion (DB connections, file handles)" }, { "label": "Downstream dependency timeout" }] },
+      { "id": "task-reproduce-staging", "kind": "task", "title": "Reproduce dominant failure mode in staging using load test at 2x peak traffic", "status": "todo", "deps": ["task-group-errors"], "acceptance": ["500s reproduced consistently in staging", "failure condition isolated"] },
+      { "id": "risk-timing-sensitivity", "kind": "risk", "description": "Race conditions may not reproduce under staging load patterns different from production", "likelihood": "H", "impact": "M", "mitigation": "Mirror production concurrency levels; use production traffic replay if available" },
+      { "id": "oq-downstream-slos", "kind": "openQuestion", "question": "Do our downstream dependencies (payment gateway, inventory service) have documented SLOs we can alert on?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-intermittent-500s",
+    "title": "Intermittent 500 error investigation and observability improvement",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-500-elimination", "kind": "objective", "text": "Reduce 500 error rate from 0.3% to < 0.01% and detect future incidents before users do", "successCriteria": ["500 rate < 0.01% for 14 days", "error detection time < 2 min via alerting", "root cause documented and fixed", "on-call runbook for 500 spikes published"] },
+      { "id": "task-alert-now", "kind": "task", "title": "Add immediate 500-rate alert (threshold 0.1% over 5 min) so we stop learning from users", "status": "todo", "deps": [], "acceptance": ["alert fires in staging when 500 rate breaches threshold", "PagerDuty routing verified"] },
+      { "id": "task-error-capture", "kind": "task", "title": "Add structured error logging that captures request ID, user, endpoint, and stack trace for every 500", "status": "todo", "deps": ["task-alert-now"], "acceptance": ["every 500 logged to centralized log store", "log includes correlation ID linkable to trace"] },
+      { "id": "task-group-errors", "kind": "task", "title": "Group captured 500s by stack trace fingerprint to find the dominant failure mode", "status": "todo", "deps": ["task-error-capture"], "acceptance": ["top-3 error fingerprints identified", "frequency and endpoint distribution per fingerprint"] },
+      { "id": "dec-failure-category", "kind": "decision", "question": "Is the dominant 500 cause a race condition, resource exhaustion, or downstream dependency timeout?", "options": [{ "label": "Race condition / shared state" }, { "label": "Resource exhaustion (DB connections, file handles)" }, { "label": "Downstream dependency timeout" }], "chosen": "Resource exhaustion (DB connections, file handles)", "rationale": "Traffic-peak correlation strongly suggests connection pool exhaustion; confirm with pg_stat_activity." },
+      { "id": "task-reproduce-staging", "kind": "task", "title": "Reproduce dominant failure mode in staging using load test at 2x peak traffic", "status": "todo", "deps": ["task-group-errors"], "acceptance": ["500s reproduced consistently in staging", "failure condition isolated"] },
+      { "id": "task-runbook", "kind": "task", "title": "Write on-call runbook for 500 spike response: check pool size, downstream health, recent deploys", "status": "todo", "deps": ["task-reproduce-staging"], "acceptance": ["runbook in wiki", "reviewed by two on-call engineers"] },
+      { "id": "risk-timing-sensitivity", "kind": "risk", "description": "Race conditions may not reproduce under staging load patterns different from production", "likelihood": "H", "impact": "M", "mitigation": "Mirror production concurrency levels; use production traffic replay if available" },
+      { "id": "oq-dependency-slos", "kind": "openQuestion", "question": "Do our downstream dependencies (payment gateway, inventory service) have documented SLOs we can alert on?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-500-elimination",
+    "task-error-capture",
+    "task-group-errors",
+    "dec-failure-category",
+    "task-reproduce-staging",
+    "risk-timing-sensitivity"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-downstream-slos",
+    "newId": "oq-dependency-slos",
+    "kind": "openQuestion",
+    "note": "Same intent (downstream dependency SLOs) but id renamed during revise. AC-13 re-anchoring must map a comment on oq-downstream-slos to oq-dependency-slos."
+  },
+  "decoy": {
+    "id": "task-runbook",
+    "kind": "task",
+    "resemblesOldId": "task-reproduce-staging",
+    "note": "Genuinely new block. Shares surface tokens 'on-call', 'staging', and 'failure' with task-reproduce-staging. A comment on task-reproduce-staging must stay there, not mis-attach to task-runbook."
+  },
+  "notes": "Renumbering pressure: task-alert-now inserted near top shifting positional alignment; task-runbook appended as genuinely new; oq-downstream-slos renamed. Naive positional scheme loses obj/task-error-capture alignment after insertion. expectedPreservedIds excludes renamed OQ and both new tasks."
+}

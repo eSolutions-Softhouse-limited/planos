@@ -1,0 +1,93 @@
+{
+  "generatedAt": "2026-05-16T09:57:42.716Z",
+  "frozenBars": {
+    "idPreservation": 0.95,
+    "convergenceWithin2": 0.9,
+    "cannedMinN": 30,
+    "liveMinRuns": 5
+  },
+  "frozenBarsUntampered": true,
+  "ac18": {
+    "cannedFixtures": 32,
+    "cannedMinMet": true,
+    "liveRunsPerScheme": {
+      "opaque": 6,
+      "semantic-slug": 6
+    },
+    "liveMinMet": true,
+    "noLiveRegression": true,
+    "realThinLoop": true
+  },
+  "chosenScheme": "opaque",
+  "chosenVerdict": {
+    "scheme": "opaque",
+    "groupI_deterministicCorrectness": {
+      "pass": true,
+      "gracefulDegradation": true,
+      "offline": true,
+      "evaluated": true,
+      "gated": true
+    },
+    "groupII_cannedFixture": {
+      "pass": true,
+      "idPreservationRate": 1,
+      "convergenceWithin2Rate": 1,
+      "n": 32,
+      "gateReady": true,
+      "bars": {
+        "idPreservation": 0.95,
+        "convergenceWithin2": 0.9,
+        "minN": 30
+      },
+      "gated": true
+    },
+    "groupIII_liveRun": {
+      "pass": true,
+      "idPreservationRate": 1,
+      "runs": 6,
+      "anyRegression": false,
+      "enoughRuns": true,
+      "bars": {
+        "idPreservation": 0.95,
+        "minRuns": 5
+      },
+      "gated": true
+    },
+    "firstTryValidRate": {
+      "canned": {
+        "rate": 1,
+        "valid": 32,
+        "total": 32,
+        "gated": false,
+        "note": "reported only — the deny→revise loop absorbs bad first-tries"
+      },
+      "live": {
+        "rate": 1,
+        "valid": 6,
+        "total": 6,
+        "gated": false,
+        "note": "reported only — the deny→revise loop absorbs bad first-tries"
+      },
+      "note": "reported only — NOT gated (AC-19)"
+    }
+  },
+  "alternativeScheme": {
+    "scheme": "semantic-slug",
+    "groupIII_liveRun": {
+      "idPreservationRate": 1,
+      "runs": 6,
+      "anyRegression": false,
+      "enoughRuns": true,
+      "bars": {
+        "idPreservation": 0.95,
+        "minRuns": 5
+      },
+      "pass": true,
+      "gated": true
+    },
+    "note": "validated equal-measured-merit alternative; not the default"
+  },
+  "threeGroupsReportedSeparately": true,
+  "singleCollapsedNumber": false,
+  "PHASE1_EXIT_GATE": "PASS"
+}

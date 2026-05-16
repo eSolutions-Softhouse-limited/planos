@@ -1,0 +1,59 @@
+{
+  "name": "refac-10-error-handling-unification",
+  "schemaVersion": 1,
+  "initialPrompt": "Error handling in our Python microservices is completely inconsistent — some services return RFC 7807 Problem Details, some return custom JSON blobs, and three services just let unhandled exceptions bubble up to a 500 with a stack trace in the body. Our mobile app has to special-case every service's error format. I want: a unified error response standard across all 12 services, a shared exception hierarchy in our internal PyPI package, and a plan to retrofit all existing endpoints without breaking clients.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-error-handling",
+    "title": "Error handling unification across 12 Python microservices",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-errors", "kind": "objective", "text": "Unify error responses across all 12 Python microservices using RFC 7807 Problem Details", "successCriteria": ["All endpoints return RFC 7807 compliant errors", "Mobile client removes all service-specific error handling", "Zero stack traces exposed in API responses"] },
+      { "id": "task-error-audit", "kind": "task", "title": "Audit current error formats and unhandled exception paths across all 12 services", "status": "todo", "deps": [], "acceptance": ["Error format inventory per service per endpoint category", "All unhandled exception paths listed"] },
+      { "id": "task-exception-hierarchy", "kind": "task", "title": "Design shared exception hierarchy in internal PyPI package", "status": "todo", "deps": ["task-error-audit"], "acceptance": ["Base exception classes published to internal PyPI", "Each error category maps to an RFC 7807 type URI"] },
+      { "id": "task-middleware", "kind": "task", "title": "Implement RFC 7807 error middleware for FastAPI and Flask", "status": "todo", "deps": ["task-exception-hierarchy"], "acceptance": ["Middleware converts all exceptions to RFC 7807 format", "Stack traces suppressed in non-debug mode"] },
+      { "id": "task-retrofit-services", "kind": "task", "title": "Retrofit all 12 services with shared exception hierarchy and middleware", "status": "todo", "deps": ["task-middleware"], "acceptance": ["All services use shared exception hierarchy", "Client compatibility tests pass for each service"] },
+      { "id": "dec-error-standard", "kind": "decision", "question": "Adopt RFC 7807 Problem Details or design a custom error envelope?", "options": [{ "label": "RFC 7807 Problem Details" }, { "label": "Custom error envelope" }], "chosen": "RFC 7807 Problem Details", "rationale": "Industry standard; clients can use generic RFC 7807 parsers." },
+      { "id": "oq-client-migration", "kind": "openQuestion", "question": "Can the mobile client ship a backward-compatible update before we change the error format, or do we need a versioned error endpoint?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-error-handling",
+    "title": "Error handling unification across 12 Python microservices",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-errors", "kind": "objective", "text": "Unify error responses across all 12 Python microservices using RFC 7807 Problem Details, with client compatibility maintained throughout rollout", "successCriteria": ["All endpoints return RFC 7807 compliant errors", "Mobile client removes all service-specific error handling", "Zero stack traces exposed in API responses", "Client compatibility tests green for each service before cutover"] },
+      { "id": "task-client-compat-suite", "kind": "task", "title": "Build client compatibility test suite that exercises error paths for each service", "status": "todo", "deps": [], "acceptance": ["Test suite covers all error categories per service", "Suite runs against production-like staging environment"] },
+      { "id": "task-error-audit", "kind": "task", "title": "Audit current error formats and unhandled exception paths across all 12 services", "status": "todo", "deps": ["task-client-compat-suite"], "acceptance": ["Error format inventory per service per endpoint category", "All unhandled exception paths listed"] },
+      { "id": "task-exception-hierarchy", "kind": "task", "title": "Design shared exception hierarchy in internal PyPI package", "status": "todo", "deps": ["task-error-audit"], "acceptance": ["Base exception classes published to internal PyPI", "Each error category maps to an RFC 7807 type URI"] },
+      { "id": "task-middleware", "kind": "task", "title": "Implement RFC 7807 error middleware for FastAPI and Flask", "status": "todo", "deps": ["task-exception-hierarchy"], "acceptance": ["Middleware converts all exceptions to RFC 7807 format", "Stack traces suppressed in non-debug mode"] },
+      { "id": "task-retrofit-services", "kind": "task", "title": "Retrofit all 12 services with shared exception hierarchy and middleware", "status": "todo", "deps": ["task-middleware"], "acceptance": ["All services use shared exception hierarchy", "Client compatibility tests pass for each service"] },
+      { "id": "task-sentry-integration", "kind": "task", "title": "Wire RFC 7807 error middleware to Sentry for error rate dashboards", "status": "todo", "deps": ["task-middleware"], "acceptance": ["All service errors visible in Sentry with RFC 7807 type as fingerprint", "Error rate dashboard created per service"] },
+      { "id": "dec-rfc7807-adoption", "kind": "decision", "question": "Adopt RFC 7807 Problem Details or design a custom error envelope?", "options": [{ "label": "RFC 7807 Problem Details" }, { "label": "Custom error envelope" }], "chosen": "RFC 7807 Problem Details", "rationale": "Industry standard; clients can use generic RFC 7807 parsers." },
+      { "id": "oq-mobile-rollout", "kind": "openQuestion", "question": "Can the mobile client ship a backward-compatible update before we change the error format, or do we need a versioned error endpoint?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-errors",
+    "task-error-audit",
+    "task-exception-hierarchy",
+    "task-middleware",
+    "task-retrofit-services"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-error-standard",
+    "newId": "dec-rfc7807-adoption",
+    "kind": "decision",
+    "note": "Same decision about RFC 7807 vs custom envelope, but id changed from dec-error-standard to dec-rfc7807-adoption. AC-13 re-anchoring must map comments from dec-error-standard to dec-rfc7807-adoption."
+  },
+  "decoy": {
+    "id": "task-sentry-integration",
+    "kind": "task",
+    "resemblesOldId": "task-middleware",
+    "note": "Genuinely new block. Shares surface tokens 'RFC 7807', 'middleware', and 'error' with task-middleware. A comment on task-middleware must stay on task-middleware, not migrate to task-sentry-integration."
+  },
+  "notes": "Renumbering pressure: task-client-compat-suite inserted at position 1 shifts all subsequent tasks; task-sentry-integration inserted before dec block; dec-error-standard renamed to dec-rfc7807-adoption; oq-client-migration renamed to oq-mobile-rollout. expectedPreservedIds has 5 entries, excluding the changed ids and genuinely new blocks."
+}

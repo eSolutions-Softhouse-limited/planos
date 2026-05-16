@@ -1,0 +1,8 @@
+{
+  "plugins": [
+    {
+      "name": "planos",
+      "source": "./plugin"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "name": "feat-01-checkout-flow",
+  "schemaVersion": 1,
+  "initialPrompt": "We need to overhaul the checkout flow. Right now users drop off at the payment step. I want: a multi-step checkout UI (cart review → shipping address → payment → confirmation), Stripe integration for credit card processing, address validation via a third-party API, and a confirmation email sent on successful order. Also add guest checkout so users don't have to register.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-checkout-flow",
+    "title": "Multi-step checkout flow overhaul",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-checkout", "kind": "objective", "text": "Reduce cart abandonment by delivering a frictionless multi-step checkout", "successCriteria": ["checkout completion rate improves by ≥10%", "guest checkout available", "no PCI data stored on our servers"] },
+      { "id": "dec-payment-provider", "kind": "decision", "question": "Which payment provider should we integrate?", "options": [{ "label": "Stripe" }, { "label": "Braintree" }], "chosen": "Stripe", "rationale": "Team already has Stripe familiarity; strong React SDK." },
+      { "id": "task-checkout-ui", "kind": "task", "title": "Build multi-step checkout UI (cart → shipping → payment → confirmation)", "status": "todo", "deps": [], "acceptance": ["step transitions are animated", "back navigation works", "progress indicator visible"] },
+      { "id": "task-stripe-integration", "kind": "task", "title": "Integrate Stripe for credit card processing", "status": "todo", "deps": ["task-checkout-ui"], "acceptance": ["test card charges succeed", "declined cards show user-friendly error", "webhook confirms payment"] },
+      { "id": "task-address-validation", "kind": "task", "title": "Add address validation via third-party API", "status": "todo", "deps": ["task-checkout-ui"], "acceptance": ["invalid addresses flagged before submit", "API errors fall back gracefully"] },
+      { "id": "task-confirmation-email", "kind": "task", "title": "Send confirmation email on successful order", "status": "todo", "deps": ["task-stripe-integration"], "acceptance": ["email arrives within 60 s", "contains order summary and tracking link placeholder"] },
+      { "id": "risk-stripe-downtime", "kind": "risk", "description": "Stripe outage blocks all purchases", "likelihood": "L", "impact": "H", "mitigation": "Show maintenance message and retry queue; alert on-call" },
+      { "id": "oq-guest-data-retention", "kind": "openQuestion", "question": "How long do we retain guest checkout data (email, address) before purging?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-checkout-flow",
+    "title": "Multi-step checkout flow overhaul",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-checkout", "kind": "objective", "text": "Reduce cart abandonment by delivering a frictionless multi-step checkout with guest support", "successCriteria": ["checkout completion rate improves by ≥10%", "guest checkout available", "no PCI data stored on our servers", "confirmation email delivered within 60 s"] },
+      { "id": "task-guest-checkout", "kind": "task", "title": "Implement guest checkout (no registration required)", "status": "todo", "deps": [], "acceptance": ["guest can complete purchase with only email + address", "account creation offered post-purchase"] },
+      { "id": "dec-payment-provider", "kind": "decision", "question": "Which payment provider should we integrate?", "options": [{ "label": "Stripe" }, { "label": "Braintree" }], "chosen": "Stripe", "rationale": "Team already has Stripe familiarity; strong React SDK." },
+      { "id": "task-checkout-ui", "kind": "task", "title": "Build multi-step checkout UI (cart → shipping → payment → confirmation)", "status": "todo", "deps": ["task-guest-checkout"], "acceptance": ["step transitions are animated", "back navigation works", "progress indicator visible"] },
+      { "id": "task-stripe-integration", "kind": "task", "title": "Integrate Stripe for credit card processing", "status": "todo", "deps": ["task-checkout-ui"], "acceptance": ["test card charges succeed", "declined cards show user-friendly error", "webhook confirms payment"] },
+      { "id": "task-address-validation", "kind": "task", "title": "Add address validation via third-party API", "status": "todo", "deps": ["task-checkout-ui"], "acceptance": ["invalid addresses flagged before submit", "API errors fall back gracefully"] },
+      { "id": "task-order-email-v2", "kind": "task", "title": "Send order confirmation and receipt email on successful purchase", "status": "todo", "deps": ["task-stripe-integration"], "acceptance": ["email arrives within 60 s", "contains order summary, amount, and tracking placeholder", "works for both guest and registered users"] },
+      { "id": "risk-stripe-downtime", "kind": "risk", "description": "Stripe outage blocks all purchases", "likelihood": "L", "impact": "H", "mitigation": "Show maintenance message and retry queue; alert on-call" },
+      { "id": "oq-guest-data-retention", "kind": "openQuestion", "question": "How long do we retain guest checkout data (email, address) before purging?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-checkout",
+    "dec-payment-provider",
+    "task-checkout-ui",
+    "task-stripe-integration",
+    "task-address-validation",
+    "risk-stripe-downtime",
+    "oq-guest-data-retention"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "task-confirmation-email",
+    "newId": "task-order-email-v2",
+    "kind": "task",
+    "note": "Same intent (send confirmation email after payment) but the agent renamed and expanded the task during revise, changing its id. The AC-13 re-anchoring fallback must map a comment on task-confirmation-email to task-order-email-v2 via kind-gated Jaccard."
+  },
+  "decoy": {
+    "id": "task-guest-checkout",
+    "kind": "task",
+    "resemblesOldId": "task-checkout-ui",
+    "note": "Genuinely-new block. Shares surface tokens 'checkout' with task-checkout-ui, making it a real trap. A comment on task-checkout-ui must re-attach to task-checkout-ui (which kept its id), NOT to this new guest-checkout task."
+  },
+  "notes": "Renumbering pressure: task-guest-checkout inserted near top causing positional shift; task-order-email-v2 replaces task-confirmation-email with id change. A naive positional scheme loses obj/dec/task-checkout-ui alignment. expectedPreservedIds excludes task-confirmation-email (id changed) and task-guest-checkout (new). Denominator is 7."
+}

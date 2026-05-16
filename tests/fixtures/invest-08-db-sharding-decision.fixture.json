@@ -1,0 +1,60 @@
+{
+  "name": "invest-08-db-sharding-decision",
+  "schemaVersion": 1,
+  "initialPrompt": "Our single PostgreSQL database is approaching write throughput limits — we're at 80% of max connections and writes are taking 3x longer than six months ago. The team wants to shard, but I'm not sure we actually need it yet versus other options. I need a plan to: rigorously measure whether sharding is necessary or if connection pooling + read replicas buys us another 18 months, evaluate sharding strategies (horizontal by tenant ID vs. by entity type), and if we proceed, design the migration path with zero downtime.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-db-sharding",
+    "title": "DB sharding decision: measure first, then design migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-db-scale", "kind": "objective", "text": "Resolve DB write throughput bottleneck with a documented, evidence-based architecture decision", "successCriteria": ["write latency returns to < 50 ms at peak", "decision backed by measured headroom data", "zero-downtime migration path designed if sharding chosen"] },
+      { "id": "task-measure-headroom", "kind": "task", "title": "Measure actual write headroom: connection pool saturation, WAL write rate, lock wait times", "status": "todo", "deps": [], "acceptance": ["metrics captured over 7-day period", "headroom estimate in months at current growth rate"] },
+      { "id": "dec-shard-or-not", "kind": "decision", "question": "Is sharding necessary now, or do connection pooling (PgBouncer) + read replicas buy sufficient headroom?", "options": [{ "label": "Shard now (horizontal by tenant ID)" }, { "label": "PgBouncer + read replicas (defer sharding 18 months)" }, { "label": "Vertical scale (larger instance) as short-term bridge" }] },
+      { "id": "task-pgbouncer-spike", "kind": "task", "title": "Spike: deploy PgBouncer in transaction mode and measure connection count and write latency", "status": "todo", "deps": ["task-measure-headroom"], "acceptance": ["connection count drops by > 50%", "write latency measured before and after"] },
+      { "id": "task-sharding-design", "kind": "task", "title": "Design sharding scheme: shard key selection, routing layer, and cross-shard query strategy", "status": "todo", "deps": ["task-pgbouncer-spike"], "acceptance": ["shard key documented with hotspot analysis", "cross-shard query patterns listed and mitigated"] },
+      { "id": "risk-cross-shard-joins", "kind": "risk", "description": "Sharding breaks cross-tenant joins required by admin reporting queries", "likelihood": "H", "impact": "H", "mitigation": "Route admin queries to a separate reporting replica with full dataset; accept slightly stale data" },
+      { "id": "oq-tenant-distribution", "kind": "openQuestion", "question": "Are our largest tenants disproportionately heavy writers that would cause shard hotspots with a naive tenant-ID key?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-db-sharding",
+    "title": "DB sharding decision: measure first, then design migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-db-scale", "kind": "objective", "text": "Resolve DB write throughput bottleneck with a documented, evidence-based architecture decision", "successCriteria": ["write latency returns to < 50 ms at peak", "decision backed by measured headroom data", "zero-downtime migration path designed if sharding chosen", "ADR published and reviewed by platform team"] },
+      { "id": "task-growth-projection", "kind": "task", "title": "Project write growth rate for next 24 months based on business forecast", "status": "todo", "deps": [], "acceptance": ["growth model agreed with product team", "inflection point (when DB hits limits) estimated with uncertainty range"] },
+      { "id": "task-measure-headroom", "kind": "task", "title": "Measure actual write headroom: connection pool saturation, WAL write rate, lock wait times", "status": "todo", "deps": ["task-growth-projection"], "acceptance": ["metrics captured over 7-day period", "headroom estimate in months at current growth rate"] },
+      { "id": "dec-shard-or-not", "kind": "decision", "question": "Is sharding necessary now, or do connection pooling (PgBouncer) + read replicas buy sufficient headroom?", "options": [{ "label": "Shard now (horizontal by tenant ID)" }, { "label": "PgBouncer + read replicas (defer sharding 18 months)" }, { "label": "Vertical scale (larger instance) as short-term bridge" }], "chosen": "PgBouncer + read replicas (defer sharding 18 months)", "rationale": "Measurement shows 14 months of headroom; PgBouncer spike reduces connection count by 60%." },
+      { "id": "task-pgbouncer-spike", "kind": "task", "title": "Spike: deploy PgBouncer in transaction mode and measure connection count and write latency", "status": "todo", "deps": ["task-measure-headroom"], "acceptance": ["connection count drops by > 50%", "write latency measured before and after"] },
+      { "id": "task-sharding-design", "kind": "task", "title": "Design sharding scheme: shard key selection, routing layer, and cross-shard query strategy", "status": "todo", "deps": ["task-pgbouncer-spike"], "acceptance": ["shard key documented with hotspot analysis", "cross-shard query patterns listed and mitigated"] },
+      { "id": "task-adr-publish", "kind": "task", "title": "Publish ADR documenting the shard-or-not decision with evidence", "status": "todo", "deps": ["task-sharding-design"], "acceptance": ["ADR in docs/adr/", "reviewed and approved by two platform engineers"] },
+      { "id": "risk-cross-shard-joins", "kind": "risk", "description": "Sharding breaks cross-tenant joins required by admin reporting queries", "likelihood": "H", "impact": "H", "mitigation": "Route admin queries to a separate reporting replica with full dataset; accept slightly stale data" },
+      { "id": "oq-hotspot-tenants", "kind": "openQuestion", "question": "Are our largest tenants disproportionately heavy writers that would cause shard hotspots with a naive tenant-ID key?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-db-scale",
+    "task-measure-headroom",
+    "dec-shard-or-not",
+    "task-pgbouncer-spike",
+    "task-sharding-design",
+    "risk-cross-shard-joins"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-tenant-distribution",
+    "newId": "oq-hotspot-tenants",
+    "kind": "openQuestion",
+    "note": "Same intent (tenant hotspot risk for shard key) but id renamed. AC-13 re-anchoring maps a comment on oq-tenant-distribution to oq-hotspot-tenants."
+  },
+  "decoy": {
+    "id": "task-adr-publish",
+    "kind": "task",
+    "resemblesOldId": "task-sharding-design",
+    "note": "Genuinely new block. Shares surface tokens 'sharding', 'decision', and 'platform' with task-sharding-design. A comment on task-sharding-design must stay there, not mis-attach to task-adr-publish."
+  },
+  "notes": "Renumbering pressure: task-growth-projection inserted near top; task-adr-publish appended; oq-tenant-distribution renamed. Positional shift after task-growth-projection breaks naive mapping for task-measure-headroom onward. expectedPreservedIds excludes renamed OQ and both new tasks."
+}

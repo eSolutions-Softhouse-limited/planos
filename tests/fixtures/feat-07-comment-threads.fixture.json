@@ -1,0 +1,63 @@
+{
+  "name": "feat-07-comment-threads",
+  "schemaVersion": 1,
+  "initialPrompt": "We need inline comment threads on documents, like Google Docs. Users should be able to highlight any text passage and leave a comment, reply in a thread, resolve the thread when addressed, and @mention teammates. Comments should show in a sidebar panel with links back to the highlighted text. Add email notifications when someone replies to your thread or mentions you. Also show the comment count in the document list view.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-comment-threads",
+    "title": "Inline comment threads on documents",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-comments", "kind": "objective", "text": "Enable collaborative review via inline threaded comments anchored to document text", "successCriteria": ["comment anchors survive document edits", "email notification delivered within 60 s of reply", "resolved threads hidden by default"] },
+      { "id": "task-text-highlight-anchor", "kind": "task", "title": "Implement text-range selection and comment anchor creation", "status": "todo", "deps": [], "acceptance": ["user can highlight text and click 'Comment'", "anchor position stored as character offset range", "anchor re-rendered correctly after minor edits"] },
+      { "id": "task-comment-sidebar", "kind": "task", "title": "Build comment sidebar panel linked to document anchors", "status": "todo", "deps": ["task-text-highlight-anchor"], "acceptance": ["sidebar shows comments sorted by position", "clicking comment highlights anchor in document", "sidebar scrolls to active comment"] },
+      { "id": "task-thread-replies", "kind": "task", "title": "Implement threaded replies within a comment", "status": "todo", "deps": ["task-comment-sidebar"], "acceptance": ["replies nested under parent comment", "reply count shown on collapsed thread", "author avatar and timestamp displayed"] },
+      { "id": "task-resolve-thread", "kind": "task", "title": "Add resolve/unresolve thread action", "status": "todo", "deps": ["task-thread-replies"], "acceptance": ["resolved threads hidden by default", "toggle to show resolved threads", "resolution logged with timestamp and user"] },
+      { "id": "task-mention-notify", "kind": "task", "title": "Implement @mention and email notification for replies and mentions", "status": "todo", "deps": ["task-thread-replies"], "acceptance": ["@mention autocomplete shows team members", "notification email sent within 60 s", "email links directly to comment"] },
+      { "id": "risk-anchor-drift", "kind": "risk", "description": "Comment anchors may drift or break after large document restructuring", "likelihood": "H", "impact": "M", "mitigation": "Store anchors with surrounding context hashes; re-anchor on best-match fallback" },
+      { "id": "oq-anon-comments", "kind": "openQuestion", "question": "Should public-shared documents allow anonymous comments, or only authenticated users?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-comment-threads",
+    "title": "Inline comment threads on documents",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-comments", "kind": "objective", "text": "Enable collaborative review via inline threaded comments anchored to document text", "successCriteria": ["comment anchors survive document edits", "email notification delivered within 60 s of reply", "resolved threads hidden by default"] },
+      { "id": "task-comment-data-model", "kind": "task", "title": "Design comment and thread data model (schema + API)", "status": "todo", "deps": [], "acceptance": ["schema supports anchors, threads, replies, resolve state", "REST API for CRUD", "optimistic locking on edits"] },
+      { "id": "task-text-highlight-anchor", "kind": "task", "title": "Implement text-range selection and comment anchor creation", "status": "todo", "deps": ["task-comment-data-model"], "acceptance": ["user can highlight text and click 'Comment'", "anchor position stored as character offset range", "anchor re-rendered correctly after minor edits"] },
+      { "id": "task-comment-sidebar", "kind": "task", "title": "Build comment sidebar panel linked to document anchors", "status": "todo", "deps": ["task-text-highlight-anchor"], "acceptance": ["sidebar shows comments sorted by position", "clicking comment highlights anchor in document", "sidebar scrolls to active comment"] },
+      { "id": "task-thread-replies", "kind": "task", "title": "Implement threaded replies within a comment", "status": "todo", "deps": ["task-comment-sidebar"], "acceptance": ["replies nested under parent comment", "reply count shown on collapsed thread", "author avatar and timestamp displayed"] },
+      { "id": "task-resolve-thread", "kind": "task", "title": "Add resolve/unresolve thread action", "status": "todo", "deps": ["task-thread-replies"], "acceptance": ["resolved threads hidden by default", "toggle to show resolved threads", "resolution logged with timestamp and user"] },
+      { "id": "task-mention-notify", "kind": "task", "title": "Implement @mention and email notification for replies and mentions", "status": "todo", "deps": ["task-thread-replies"], "acceptance": ["@mention autocomplete shows team members", "notification email sent within 60 s", "email links directly to comment"] },
+      { "id": "task-doc-list-comment-count", "kind": "task", "title": "Show open comment count on document in list view", "status": "todo", "deps": ["task-comment-data-model"], "acceptance": ["count badge visible in list row", "only unresolved comments counted", "updates without page reload"] },
+      { "id": "risk-anchor-drift-v2", "kind": "risk", "description": "Comment anchors may drift or break after large document restructuring; re-anchor heuristics are imperfect", "likelihood": "H", "impact": "M", "mitigation": "Store anchors with surrounding context hashes; re-anchor on best-match fallback; surface 'anchor lost' UI state" },
+      { "id": "oq-anon-comments", "kind": "openQuestion", "question": "Should public-shared documents allow anonymous comments, or only authenticated users?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-comments",
+    "task-text-highlight-anchor",
+    "task-comment-sidebar",
+    "task-thread-replies",
+    "task-resolve-thread",
+    "task-mention-notify",
+    "oq-anon-comments"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-anchor-drift",
+    "newId": "risk-anchor-drift-v2",
+    "kind": "risk",
+    "note": "Same risk (anchor drift) but description and mitigation expanded in revision; id changed. AC-13 fallback must map risk-anchor-drift to risk-anchor-drift-v2."
+  },
+  "decoy": {
+    "id": "task-doc-list-comment-count",
+    "kind": "task",
+    "resemblesOldId": "task-comment-sidebar",
+    "note": "Genuinely-new block. Shares surface tokens 'comment' and 'document' with task-comment-sidebar. A comment on task-comment-sidebar must re-attach to task-comment-sidebar (id preserved), NOT this new count-badge task."
+  },
+  "notes": "Renumbering pressure: task-comment-data-model inserted second (shifts all subsequent positions); task-doc-list-comment-count added; risk-anchor-drift id changed. Naive positional scheme loses alignment for task-text-highlight-anchor onward. Denominator is 7."
+}

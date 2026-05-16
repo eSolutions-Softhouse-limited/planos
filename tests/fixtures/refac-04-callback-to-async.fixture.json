@@ -1,0 +1,60 @@
+{
+  "name": "refac-04-callback-to-async",
+  "schemaVersion": 1,
+  "initialPrompt": "Our Node.js codebase still has 800+ callback-style functions from when we started in 2014. The callback hell is making it impossible to add proper error handling and the code is nearly unreadable. I want to: convert all callbacks to async/await, add proper try/catch error propagation throughout, and make sure the test suite stays green and coverage doesn't drop below the current 78%.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-callback-async",
+    "title": "Callback → async/await migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-async", "kind": "objective", "text": "Convert all 800+ callback functions to async/await with proper error propagation", "successCriteria": ["Zero callback-style functions in main source tree", "Test coverage stays at or above 78%", "No unhandled promise rejections in production logs"] },
+      { "id": "task-codemod-audit", "kind": "task", "title": "Audit callback sites using AST codemod tooling", "status": "todo", "deps": [], "acceptance": ["Count of callback sites confirmed", "Auto-convertible vs manual-only sites categorised"] },
+      { "id": "task-run-codemod", "kind": "task", "title": "Run automated codemod for simple callback→async conversions", "status": "todo", "deps": ["task-codemod-audit"], "acceptance": ["Codemod applied to all auto-convertible sites", "Tests still green after codemod"] },
+      { "id": "task-manual-convert", "kind": "task", "title": "Manually convert complex callback chains", "status": "todo", "deps": ["task-run-codemod"], "acceptance": ["All manual-only sites converted", "Each converted file reviewed in PR"] },
+      { "id": "dec-promisify-strategy", "kind": "decision", "question": "Use util.promisify for third-party callbacks or write custom wrappers?", "options": [{ "label": "util.promisify" }, { "label": "Custom wrappers" }], "chosen": "util.promisify", "rationale": "Standard library; no custom maintenance burden." },
+      { "id": "risk-event-emitter", "kind": "risk", "description": "Event emitters can't be trivially promisified — silent breakage possible", "likelihood": "M", "impact": "H", "mitigation": "Flag all EventEmitter usages in audit; handle separately with events.once or stream.pipeline" },
+      { "id": "oq-third-party-libs", "kind": "openQuestion", "question": "Which third-party libraries still emit only callbacks and need wrapper shims?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-callback-async",
+    "title": "Callback → async/await migration",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-async", "kind": "objective", "text": "Convert all 800+ callback functions to async/await with proper error propagation and maintained test coverage", "successCriteria": ["Zero callback-style functions in main source tree", "Test coverage stays at or above 78%", "No unhandled promise rejections in production logs", "ESLint no-callback rule enabled in CI"] },
+      { "id": "task-eslint-rule", "kind": "task", "title": "Enable ESLint no-callback rule in warn mode before migration starts", "status": "todo", "deps": [], "acceptance": ["Rule active, warnings logged to CI artifact", "Baseline warning count recorded for progress tracking"] },
+      { "id": "task-codemod-audit", "kind": "task", "title": "Audit callback sites using AST codemod tooling", "status": "todo", "deps": ["task-eslint-rule"], "acceptance": ["Count of callback sites confirmed", "Auto-convertible vs manual-only sites categorised"] },
+      { "id": "task-run-codemod", "kind": "task", "title": "Run automated codemod for simple callback→async conversions", "status": "todo", "deps": ["task-codemod-audit"], "acceptance": ["Codemod applied to all auto-convertible sites", "Tests still green after codemod"] },
+      { "id": "task-manual-convert", "kind": "task", "title": "Manually convert complex callback chains", "status": "todo", "deps": ["task-run-codemod"], "acceptance": ["All manual-only sites converted", "Each converted file reviewed in PR"] },
+      { "id": "task-event-emitter-audit", "kind": "task", "title": "Audit and wrap all EventEmitter usages separately", "status": "todo", "deps": ["task-codemod-audit"], "acceptance": ["All EventEmitter sites listed", "events.once or stream.pipeline used where applicable"] },
+      { "id": "dec-promisify-approach", "kind": "decision", "question": "Use util.promisify for third-party callbacks or write custom wrappers?", "options": [{ "label": "util.promisify" }, { "label": "Custom wrappers" }], "chosen": "util.promisify", "rationale": "Standard library; no custom maintenance burden." },
+      { "id": "risk-event-emitter", "kind": "risk", "description": "Event emitters can't be trivially promisified — silent breakage possible", "likelihood": "M", "impact": "H", "mitigation": "Flag all EventEmitter usages in audit; handle separately with events.once or stream.pipeline" },
+      { "id": "oq-third-party-libs", "kind": "openQuestion", "question": "Which third-party libraries still emit only callbacks and need wrapper shims?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-async",
+    "task-codemod-audit",
+    "task-run-codemod",
+    "task-manual-convert",
+    "risk-event-emitter",
+    "oq-third-party-libs"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "dec-promisify-strategy",
+    "newId": "dec-promisify-approach",
+    "kind": "decision",
+    "note": "Same decision about util.promisify vs custom wrappers, but id changed from dec-promisify-strategy to dec-promisify-approach. AC-13 re-anchoring must map comments from dec-promisify-strategy to dec-promisify-approach."
+  },
+  "decoy": {
+    "id": "task-event-emitter-audit",
+    "kind": "task",
+    "resemblesOldId": "task-codemod-audit",
+    "note": "Genuinely new block. Shares surface tokens 'audit' and 'EventEmitter' with risk-event-emitter and task-codemod-audit. A comment on task-codemod-audit must stay on task-codemod-audit, not migrate to task-event-emitter-audit."
+  },
+  "notes": "Renumbering pressure: task-eslint-rule inserted at position 1 shifts all subsequent tasks; task-event-emitter-audit inserted mid-list; dec-promisify-strategy renamed to dec-promisify-approach. oq-third-party-libs is preserved (id unchanged). Positional scheme breaks after leading task insertion."
+}

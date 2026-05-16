@@ -1,0 +1,63 @@
+{
+  "name": "feat-10-audit-log",
+  "schemaVersion": 1,
+  "initialPrompt": "Enterprise customers are asking for an audit log so they can see who did what and when. I need: a searchable audit log page showing all user actions (logins, data changes, permission changes, exports), filterable by user, date range, and action type, with the ability to export the log to CSV. The log must be tamper-evident — entries should not be editable or deletable by anyone including admins. Also expose it via API so customers can pull it into their SIEM.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-audit-log",
+    "title": "Tamper-evident audit log with API access",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-audit-log", "kind": "objective", "text": "Provide enterprise customers with a tamper-evident, searchable record of all user actions", "successCriteria": ["log entries immutable after write", "full-text search returns results in <2 s", "API returns paginated log within SLA"] },
+      { "id": "dec-tamper-evidence", "kind": "decision", "question": "How do we make log entries tamper-evident?", "options": [{ "label": "Append-only table with DB-level delete restriction" }, { "label": "Cryptographic hash chain" }], "chosen": "Append-only table with DB-level delete restriction", "rationale": "Sufficient for compliance; hash chain adds complexity without proportional benefit for our threat model." },
+      { "id": "task-audit-schema", "kind": "task", "title": "Design audit event schema and append-only storage", "status": "todo", "deps": [], "acceptance": ["events table has no UPDATE/DELETE grants", "schema covers actor, action, resource, before/after, timestamp", "indexed on user_id, created_at, action_type"] },
+      { "id": "task-event-instrumentation", "kind": "task", "title": "Instrument application to emit audit events for all tracked actions", "status": "todo", "deps": ["task-audit-schema"], "acceptance": ["login, logout, data change, permission change, export events captured", "events written synchronously in same transaction as action", "no audit events dropped on error"] },
+      { "id": "task-audit-ui", "kind": "task", "title": "Build searchable audit log UI with filters", "status": "todo", "deps": ["task-event-instrumentation"], "acceptance": ["filter by user, date range, action type", "full-text search on event description", "results paginated with infinite scroll"] },
+      { "id": "task-audit-export", "kind": "task", "title": "Add CSV export for audit log (reuses export infrastructure)", "status": "todo", "deps": ["task-audit-ui"], "acceptance": ["exports respect active filters", "large exports go async with email link", "exported file includes all schema fields"] },
+      { "id": "risk-event-volume", "kind": "risk", "description": "High-traffic tenants may generate millions of events per day, degrading query performance", "likelihood": "M", "impact": "H", "mitigation": "Partition audit table by month; archive entries older than 12 months to cold storage" },
+      { "id": "oq-retention-window", "kind": "openQuestion", "question": "What is the minimum retention period customers require — 90 days, 1 year, or 7 years?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-audit-log",
+    "title": "Tamper-evident audit log with API access",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-audit-log", "kind": "objective", "text": "Provide enterprise customers with a tamper-evident, searchable record of all user actions", "successCriteria": ["log entries immutable after write", "full-text search returns results in <2 s", "API returns paginated log within SLA"] },
+      { "id": "task-audit-api-design", "kind": "task", "title": "Design and document audit log REST API (for SIEM integration)", "status": "todo", "deps": [], "acceptance": ["OpenAPI spec published", "pagination via cursor token", "scoped API key auth documented", "rate limit documented"] },
+      { "id": "dec-tamper-evidence", "kind": "decision", "question": "How do we make log entries tamper-evident?", "options": [{ "label": "Append-only table with DB-level delete restriction" }, { "label": "Cryptographic hash chain" }], "chosen": "Append-only table with DB-level delete restriction", "rationale": "Sufficient for compliance; hash chain adds complexity without proportional benefit for our threat model." },
+      { "id": "task-audit-schema", "kind": "task", "title": "Design audit event schema and append-only storage", "status": "todo", "deps": [], "acceptance": ["events table has no UPDATE/DELETE grants", "schema covers actor, action, resource, before/after, timestamp", "indexed on user_id, created_at, action_type"] },
+      { "id": "task-event-instrumentation", "kind": "task", "title": "Instrument application to emit audit events for all tracked actions", "status": "todo", "deps": ["task-audit-schema"], "acceptance": ["login, logout, data change, permission change, export events captured", "events written synchronously in same transaction as action", "no audit events dropped on error"] },
+      { "id": "task-audit-ui", "kind": "task", "title": "Build searchable audit log UI with filters", "status": "todo", "deps": ["task-event-instrumentation"], "acceptance": ["filter by user, date range, action type", "full-text search on event description", "results paginated with infinite scroll"] },
+      { "id": "task-audit-export", "kind": "task", "title": "Add CSV export for audit log (reuses export infrastructure)", "status": "todo", "deps": ["task-audit-ui"], "acceptance": ["exports respect active filters", "large exports go async with email link", "exported file includes all schema fields"] },
+      { "id": "task-audit-api-impl", "kind": "task", "title": "Implement audit log REST API endpoint for SIEM integration", "status": "todo", "deps": ["task-audit-api-design", "task-audit-schema"], "acceptance": ["cursor-paginated endpoint live", "scoped API key authentication enforced", "rate-limited to 100 req/min per key"] },
+      { "id": "risk-event-volume-v2", "kind": "risk", "description": "High-traffic tenants may generate millions of events per day; API consumers may also generate load", "likelihood": "M", "impact": "H", "mitigation": "Partition audit table by month; archive entries older than 12 months to cold storage; rate-limit API" },
+      { "id": "oq-retention-window", "kind": "openQuestion", "question": "What is the minimum retention period customers require — 90 days, 1 year, or 7 years?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-audit-log",
+    "dec-tamper-evidence",
+    "task-audit-schema",
+    "task-event-instrumentation",
+    "task-audit-ui",
+    "task-audit-export",
+    "oq-retention-window"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-event-volume",
+    "newId": "risk-event-volume-v2",
+    "kind": "risk",
+    "note": "Same risk (high event volume hurting performance) but description expanded to include API consumer load; id changed. AC-13 fallback must map risk-event-volume to risk-event-volume-v2."
+  },
+  "decoy": {
+    "id": "task-audit-api-impl",
+    "kind": "task",
+    "resemblesOldId": "task-audit-schema",
+    "note": "Genuinely-new block. Shares surface tokens 'audit' and 'schema/API' with task-audit-schema. A comment on task-audit-schema must re-attach to task-audit-schema (id preserved), NOT this new API implementation task."
+  },
+  "notes": "Renumbering pressure: task-audit-api-design inserted second (shifts all subsequent positions); task-audit-api-impl added; risk-event-volume id changed. Naive positional scheme loses alignment at dec-tamper-evidence onward. Denominator is 7."
+}

@@ -1,0 +1,12 @@
+{
+  "active": false,
+  "started_at": "2026-05-16T00:40:30.763Z",
+  "original_prompt": "/oh-my-claudecode:ralph",
+  "session_id": "c0eb6e47-3cde-44a5-98bc-79d7ccc45521",
+  "project_path": "/Users/ggiak/www/esolutions.gr/planos",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "awaiting_confirmation_set_at": "2026-05-16T00:40:30.763Z",
+  "last_checked_at": "2026-05-16T01:52:58.806Z",
+  "deactivated_reason": "task_completion"
+}

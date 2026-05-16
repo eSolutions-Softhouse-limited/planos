@@ -1,0 +1,63 @@
+{
+  "name": "feat-04-dashboard-widgets",
+  "schemaVersion": 1,
+  "initialPrompt": "The dashboard is a static page and nobody looks at it. I want a widget-based dashboard where users can add, remove, and rearrange widgets. Widgets needed for v1: key metrics (revenue, signups, active users), a recent activity feed, a quick-links panel, and a chart showing weekly trends. Each user should have their own layout that persists. Also add a widget catalog so we can ship new widgets without a full deploy.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-dashboard-widgets",
+    "title": "Customisable widget dashboard",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-dashboard", "kind": "objective", "text": "Turn the static dashboard into a personalised, widget-based workspace", "successCriteria": ["user layout persists across sessions", "new widgets deployable without code release", "drag-to-reorder works on desktop"] },
+      { "id": "dec-layout-store", "kind": "decision", "question": "Where do we persist per-user widget layouts?", "options": [{ "label": "DB column on user record" }, { "label": "Separate layouts table" }], "chosen": "Separate layouts table", "rationale": "Allows versioning and sharing layouts in future." },
+      { "id": "task-grid-engine", "kind": "task", "title": "Integrate drag-and-drop grid layout engine", "status": "todo", "deps": [], "acceptance": ["widgets snap to grid", "resize handles work", "layout serialises to JSON"] },
+      { "id": "task-metrics-widget", "kind": "task", "title": "Build key metrics widget (revenue, signups, active users)", "status": "todo", "deps": ["task-grid-engine"], "acceptance": ["data refreshes every 60 s", "numbers formatted with locale", "sparkline shows 7-day trend"] },
+      { "id": "task-activity-feed-widget", "kind": "task", "title": "Build recent activity feed widget", "status": "todo", "deps": ["task-grid-engine"], "acceptance": ["shows last 20 events", "links to relevant record", "auto-refreshes every 30 s"] },
+      { "id": "task-widget-catalog", "kind": "task", "title": "Build widget catalog for adding widgets to the dashboard", "status": "todo", "deps": ["task-grid-engine"], "acceptance": ["catalog lists all available widgets", "user can add any widget with one click", "new widget appears at top of grid"] },
+      { "id": "risk-render-perf", "kind": "risk", "description": "Many simultaneous widgets each polling APIs may overload the server", "likelihood": "M", "impact": "H", "mitigation": "Batch widget data requests into a single dashboard API endpoint" },
+      { "id": "oq-widget-permissions", "kind": "openQuestion", "question": "Should some widgets be role-gated (e.g. revenue visible only to admins)?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-dashboard-widgets",
+    "title": "Customisable widget dashboard",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T10:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-dashboard", "kind": "objective", "text": "Turn the static dashboard into a personalised, widget-based workspace", "successCriteria": ["user layout persists across sessions", "new widgets deployable without code release", "drag-to-reorder works on desktop"] },
+      { "id": "task-dashboard-api", "kind": "task", "title": "Build batched dashboard data API endpoint", "status": "todo", "deps": [], "acceptance": ["single request returns data for all active widgets", "response cached for 30 s per user", "supports widget type filtering"] },
+      { "id": "dec-layout-store", "kind": "decision", "question": "Where do we persist per-user widget layouts?", "options": [{ "label": "DB column on user record" }, { "label": "Separate layouts table" }], "chosen": "Separate layouts table", "rationale": "Allows versioning and sharing layouts in future." },
+      { "id": "task-grid-engine", "kind": "task", "title": "Integrate drag-and-drop grid layout engine", "status": "todo", "deps": [], "acceptance": ["widgets snap to grid", "resize handles work", "layout serialises to JSON"] },
+      { "id": "task-metrics-widget", "kind": "task", "title": "Build key metrics widget (revenue, signups, active users)", "status": "todo", "deps": ["task-grid-engine", "task-dashboard-api"], "acceptance": ["data refreshes every 60 s", "numbers formatted with locale", "sparkline shows 7-day trend"] },
+      { "id": "task-activity-feed-widget", "kind": "task", "title": "Build recent activity feed widget", "status": "todo", "deps": ["task-grid-engine", "task-dashboard-api"], "acceptance": ["shows last 20 events", "links to relevant record", "auto-refreshes every 30 s"] },
+      { "id": "task-widget-catalog", "kind": "task", "title": "Build widget catalog for adding widgets to the dashboard", "status": "todo", "deps": ["task-grid-engine"], "acceptance": ["catalog lists all available widgets", "user can add any widget with one click", "new widget appears at top of grid"] },
+      { "id": "task-trends-chart-widget", "kind": "task", "title": "Build weekly trends chart widget", "status": "todo", "deps": ["task-grid-engine", "task-dashboard-api"], "acceptance": ["line chart renders revenue and signups over 7 days", "chart is responsive", "tooltip shows values on hover"] },
+      { "id": "risk-render-perf-v2", "kind": "risk", "description": "Many simultaneous widgets each polling APIs may overload the server; batching API added to mitigate", "likelihood": "L", "impact": "H", "mitigation": "Batch widget data requests into single dashboard API; cache responses 30 s" },
+      { "id": "oq-widget-permissions", "kind": "openQuestion", "question": "Should some widgets be role-gated (e.g. revenue visible only to admins)?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-dashboard",
+    "dec-layout-store",
+    "task-grid-engine",
+    "task-metrics-widget",
+    "task-activity-feed-widget",
+    "task-widget-catalog",
+    "oq-widget-permissions"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "risk-render-perf",
+    "newId": "risk-render-perf-v2",
+    "kind": "risk",
+    "note": "Same risk (widget polling overload) but updated after batched API task added; id changed to reflect revision. AC-13 re-anchoring fallback must map risk-render-perf to risk-render-perf-v2."
+  },
+  "decoy": {
+    "id": "task-trends-chart-widget",
+    "kind": "task",
+    "resemblesOldId": "task-metrics-widget",
+    "note": "Genuinely-new block. Shares surface tokens 'widget', 'dashboard', and 'metrics/trends' with task-metrics-widget. A comment on task-metrics-widget must re-attach to task-metrics-widget (id preserved), NOT this new chart widget."
+  },
+  "notes": "Renumbering pressure: task-dashboard-api inserted second (positional shift for all); task-trends-chart-widget added; risk-render-perf id changed. Naive positional scheme loses alignment after API task insertion. Denominator is 7."
+}

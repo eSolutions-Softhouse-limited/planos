@@ -1,0 +1,60 @@
+{
+  "name": "invest-02-slow-query-triage",
+  "schemaVersion": 1,
+  "initialPrompt": "Our checkout flow is timing out in production — p99 is 8 s and we're getting support tickets. The database team says it's a slow query but nobody has tracked it down yet. I need a plan to: identify which exact queries are slow and why, apply targeted fixes (indexes, query rewrites, or schema changes), and set up ongoing query performance monitoring so we catch this earlier next time.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-slow-query-triage",
+    "title": "PostgreSQL slow query triage and fix for checkout flow",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-query-perf", "kind": "objective", "text": "Reduce checkout p99 latency from 8 s to under 500 ms by fixing slow PostgreSQL queries", "successCriteria": ["checkout p99 < 500 ms in production", "pg_stat_statements dashboard in place", "no regression in other flows"] },
+      { "id": "task-enable-pgss", "kind": "task", "title": "Enable pg_stat_statements and identify top-10 slowest queries", "status": "todo", "deps": [], "acceptance": ["pg_stat_statements enabled on production replica", "top-10 queries by total_time exported to spreadsheet"] },
+      { "id": "task-explain-analyze", "kind": "task", "title": "Run EXPLAIN ANALYZE on each slow query to find missing indexes", "status": "todo", "deps": ["task-enable-pgss"], "acceptance": ["execution plan documented for each query", "Seq Scans on large tables identified"] },
+      { "id": "task-add-indexes", "kind": "task", "title": "Add missing indexes using CONCURRENTLY to avoid table locks", "status": "todo", "deps": ["task-explain-analyze"], "acceptance": ["indexes created without downtime", "EXPLAIN plan shows Index Scan replacing Seq Scan"] },
+      { "id": "dec-rewrite-vs-index", "kind": "decision", "question": "For queries that cannot be fixed with an index alone, rewrite the query or change schema?", "options": [{ "label": "Rewrite query (CTE, denormalize join)" }, { "label": "Schema change (add materialized column or view)" }] },
+      { "id": "risk-lock-contention", "kind": "risk", "description": "Adding indexes on hot tables causes lock contention even with CONCURRENTLY", "likelihood": "M", "impact": "H", "mitigation": "Schedule index creation during lowest traffic window; monitor pg_locks" },
+      { "id": "oq-read-replica", "kind": "openQuestion", "question": "Should checkout reads be routed to a read replica to offload the primary?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-slow-query-triage",
+    "title": "PostgreSQL slow query triage and fix for checkout flow",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-query-perf", "kind": "objective", "text": "Reduce checkout p99 latency from 8 s to under 500 ms by fixing slow PostgreSQL queries", "successCriteria": ["checkout p99 < 500 ms in production", "pg_stat_statements dashboard in place", "no regression in other flows", "alerting fires when any query exceeds 1 s mean"] },
+      { "id": "task-prod-replica-baseline", "kind": "task", "title": "Capture query latency baseline from production replica before any changes", "status": "todo", "deps": [], "acceptance": ["baseline p50/p99 per endpoint recorded", "slow query log sample exported"] },
+      { "id": "task-enable-pgss", "kind": "task", "title": "Enable pg_stat_statements and identify top-10 slowest queries", "status": "todo", "deps": ["task-prod-replica-baseline"], "acceptance": ["pg_stat_statements enabled on production replica", "top-10 queries by total_time exported to spreadsheet"] },
+      { "id": "task-explain-analyze", "kind": "task", "title": "Run EXPLAIN ANALYZE on each slow query to find missing indexes", "status": "todo", "deps": ["task-enable-pgss"], "acceptance": ["execution plan documented for each query", "Seq Scans on large tables identified"] },
+      { "id": "task-add-indexes", "kind": "task", "title": "Add missing indexes using CONCURRENTLY to avoid table locks", "status": "todo", "deps": ["task-explain-analyze"], "acceptance": ["indexes created without downtime", "EXPLAIN plan shows Index Scan replacing Seq Scan"] },
+      { "id": "dec-rewrite-vs-index", "kind": "decision", "question": "For queries that cannot be fixed with an index alone, rewrite the query or change schema?", "options": [{ "label": "Rewrite query (CTE, denormalize join)" }, { "label": "Schema change (add materialized column or view)" }], "chosen": "Rewrite query (CTE, denormalize join)", "rationale": "Schema changes require migration coordination; query rewrite is lower risk for this sprint." },
+      { "id": "task-monitoring-dashboard", "kind": "task", "title": "Set up pg_stat_statements Grafana dashboard with p99 alerting", "status": "todo", "deps": ["task-add-indexes"], "acceptance": ["dashboard live in Grafana", "alert fires in staging when query > 1 s"] },
+      { "id": "risk-lock-contention", "kind": "risk", "description": "Adding indexes on hot tables causes lock contention even with CONCURRENTLY", "likelihood": "M", "impact": "H", "mitigation": "Schedule index creation during lowest traffic window; monitor pg_locks" },
+      { "id": "oq-replica-routing", "kind": "openQuestion", "question": "Should checkout reads be routed to a read replica to offload the primary?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-query-perf",
+    "task-enable-pgss",
+    "task-explain-analyze",
+    "task-add-indexes",
+    "dec-rewrite-vs-index",
+    "risk-lock-contention"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-read-replica",
+    "newId": "oq-replica-routing",
+    "kind": "openQuestion",
+    "note": "Same intent (whether to route reads to a replica) but renamed during revise. AC-13 re-anchoring must map a comment on oq-read-replica to oq-replica-routing."
+  },
+  "decoy": {
+    "id": "task-monitoring-dashboard",
+    "kind": "task",
+    "resemblesOldId": "task-enable-pgss",
+    "note": "Genuinely new block. Shares surface tokens 'pg_stat_statements' and 'monitoring' with task-enable-pgss, making it a trap. A comment on task-enable-pgss must stay on task-enable-pgss, not mis-attach here."
+  },
+  "notes": "Renumbering pressure: task-prod-replica-baseline inserted near top (positional shift for everything after); task-monitoring-dashboard appended as genuinely new; oq-read-replica renamed to oq-replica-routing. Naive positional scheme loses obj/task-enable alignment. expectedPreservedIds excludes the renamed open-question and the two new tasks."
+}

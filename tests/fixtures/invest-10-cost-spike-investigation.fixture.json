@@ -1,0 +1,60 @@
+{
+  "name": "invest-10-cost-spike-investigation",
+  "schemaVersion": 1,
+  "initialPrompt": "Our AWS bill jumped 340% last month with no corresponding traffic increase — from $18k to $61k. Finance is demanding answers in 48 hours. I need a plan to: identify which services and resources drove the spike, determine whether it's a misconfiguration, a runaway process, or legitimate growth we didn't budget for, implement immediate cost controls, and set up ongoing cost monitoring with budget alerts so we never get blindsided like this again.",
+  "cannedAuthorResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-cost-spike",
+    "title": "AWS cost spike investigation and ongoing cost governance",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 1 },
+    "blocks": [
+      { "id": "obj-cost-control", "kind": "objective", "text": "Identify the cause of the 340% AWS cost spike and reduce monthly bill to < $22k with governance in place", "successCriteria": ["root cause identified within 48 h", "monthly bill under $22k within 14 days", "budget alert fires before 20% overage in future"] },
+      { "id": "task-cost-explorer-drill", "kind": "task", "title": "Drill into AWS Cost Explorer by service, region, and resource tag to find the top cost driver", "status": "todo", "deps": [], "acceptance": ["top-3 cost drivers identified with $ amounts", "spike start date confirmed per service"] },
+      { "id": "task-identify-runaway", "kind": "task", "title": "Check for runaway resources: unattached EBS volumes, idle NAT gateways, oversized RDS instances", "status": "todo", "deps": ["task-cost-explorer-drill"], "acceptance": ["runaway resource list with estimated monthly cost", "each resource owner notified"] },
+      { "id": "dec-immediate-action", "kind": "decision", "question": "For runaway resources confirmed as waste, terminate immediately or snapshot-then-terminate?", "options": [{ "label": "Terminate immediately to stop billing" }, { "label": "Snapshot then terminate (safer but slower)" }] },
+      { "id": "task-budget-alerts", "kind": "task", "title": "Set up AWS Budgets with alerts at 80% and 100% of monthly target per service", "status": "todo", "deps": ["task-identify-runaway"], "acceptance": ["budget alert fires in test", "alert routed to engineering Slack and finance email"] },
+      { "id": "risk-data-loss", "kind": "risk", "description": "Terminating resources to cut costs may destroy data still needed by a team", "likelihood": "M", "impact": "H", "mitigation": "Require resource-owner sign-off before termination; snapshot all storage resources first" },
+      { "id": "oq-tagging-policy", "kind": "openQuestion", "question": "Do we have a resource tagging policy that maps every AWS resource to a team and cost center?" }
+    ]
+  },
+  "cannedForcedReviseResponse": {
+    "schemaVersion": 1,
+    "type": "plan",
+    "id": "plan-cost-spike",
+    "title": "AWS cost spike investigation and ongoing cost governance",
+    "meta": { "status": "draft", "createdAt": "2026-05-16T09:00:00.000Z", "revision": 2 },
+    "blocks": [
+      { "id": "obj-cost-control", "kind": "objective", "text": "Identify the cause of the 340% AWS cost spike and reduce monthly bill to < $22k with governance in place", "successCriteria": ["root cause identified within 48 h", "monthly bill under $22k within 14 days", "budget alert fires before 20% overage in future", "cost governance process documented and owned by platform team"] },
+      { "id": "task-48h-finance-brief", "kind": "task", "title": "Prepare 48-hour finance briefing: cost breakdown, suspected cause, and mitigation plan", "status": "todo", "deps": [], "acceptance": ["briefing doc ready within 24 h", "reviewed by engineering manager before sending to finance"] },
+      { "id": "task-cost-explorer-drill", "kind": "task", "title": "Drill into AWS Cost Explorer by service, region, and resource tag to find the top cost driver", "status": "todo", "deps": ["task-48h-finance-brief"], "acceptance": ["top-3 cost drivers identified with $ amounts", "spike start date confirmed per service"] },
+      { "id": "task-identify-runaway", "kind": "task", "title": "Check for runaway resources: unattached EBS volumes, idle NAT gateways, oversized RDS instances", "status": "todo", "deps": ["task-cost-explorer-drill"], "acceptance": ["runaway resource list with estimated monthly cost", "each resource owner notified"] },
+      { "id": "dec-immediate-action", "kind": "decision", "question": "For runaway resources confirmed as waste, terminate immediately or snapshot-then-terminate?", "options": [{ "label": "Terminate immediately to stop billing" }, { "label": "Snapshot then terminate (safer but slower)" }], "chosen": "Snapshot then terminate (safer but slower)", "rationale": "Finance deadline is 48 h but data loss risk outweighs the few hours of extra cost; always snapshot first." },
+      { "id": "task-budget-alerts", "kind": "task", "title": "Set up AWS Budgets with alerts at 80% and 100% of monthly target per service", "status": "todo", "deps": ["task-identify-runaway"], "acceptance": ["budget alert fires in test", "alert routed to engineering Slack and finance email"] },
+      { "id": "task-tagging-enforcement", "kind": "task", "title": "Enforce mandatory cost-center and team tags via AWS Config rule; block untagged resource creation", "status": "todo", "deps": ["task-budget-alerts"], "acceptance": ["Config rule active in all regions", "untagged resources flagged in daily report"] },
+      { "id": "risk-data-loss", "kind": "risk", "description": "Terminating resources to cut costs may destroy data still needed by a team", "likelihood": "M", "impact": "H", "mitigation": "Require resource-owner sign-off before termination; snapshot all storage resources first" },
+      { "id": "oq-cost-center-mapping", "kind": "openQuestion", "question": "Do we have a resource tagging policy that maps every AWS resource to a team and cost center?" }
+    ]
+  },
+  "expectedPreservedIds": [
+    "obj-cost-control",
+    "task-cost-explorer-drill",
+    "task-identify-runaway",
+    "dec-immediate-action",
+    "task-budget-alerts",
+    "risk-data-loss"
+  ],
+  "idChangedButCorresponding": {
+    "oldId": "oq-tagging-policy",
+    "newId": "oq-cost-center-mapping",
+    "kind": "openQuestion",
+    "note": "Same intent (resource tagging policy for cost attribution) but id renamed during revise. AC-13 re-anchoring maps a comment on oq-tagging-policy to oq-cost-center-mapping."
+  },
+  "decoy": {
+    "id": "task-tagging-enforcement",
+    "kind": "task",
+    "resemblesOldId": "task-budget-alerts",
+    "note": "Genuinely new block. Shares surface tokens 'AWS', 'resource', and 'cost' with task-budget-alerts. A comment on task-budget-alerts must stay there, not mis-attach to task-tagging-enforcement."
+  },
+  "notes": "Renumbering pressure: task-48h-finance-brief inserted near top; task-tagging-enforcement appended as genuinely new; oq-tagging-policy renamed. Positional shift after insertion breaks naive mapping for task-cost-explorer-drill onward. expectedPreservedIds excludes renamed OQ and both new tasks."
+}
