@@ -8,15 +8,29 @@
  *   - The diagram editor reuses the ALREADY-bundled offline mermaid renderer
  *     (src/editor/mermaid.tsx — Resolved Decision D3) with a debounced live
  *     preview; a parse error degrades inline and never crashes the SPA.
- *   - STEP E: prose editing is a controlled markdown textarea with a live
- *     bundled `Markdown` preview. TipTap was rejected (see report / module
- *     docstring in App.tsx) — the offline gate wins over a rich-text dep.
+ *   - STEP E (M4b): prose editing is a REAL TipTap/ProseMirror WYSIWYG editor.
+ *     TipTap + tiptap-markdown are BUILD-TIME devDependencies, inlined fully
+ *     into the single-file bundle exactly like React and the offline mermaid
+ *     renderer — nothing is fetched at runtime, so the offline gate still
+ *     holds (empirically proven; see M4b report). The block's markdown `md`
+ *     field round-trips losslessly through tiptap-markdown; a genuine editor
+ *     throw degrades inline to the in-house markdown textarea.
  *
  * Every mutation flows OUT through `onSave(patch)` / add / delete callbacks
  * into App's `edits`/`adds`/`deletes` state → the single `deriveWorkingDoc`
  * fold-back site. This component owns NO document state and does NO transport.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Component,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { EditorContent, useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import { Markdown as TiptapMarkdown } from 'tiptap-markdown';
 import { Markdown } from './markdown';
 import { MermaidDiagram } from './mermaid';
 import { useTheme, type ThemeTokens } from './theme';
@@ -257,11 +271,29 @@ function ListField({
 }
 
 // ---------------------------------------------------------------------------
-// STEP E — prose editor: controlled markdown textarea + live bundled preview.
-// (TipTap rejected; the offline gate wins. Zero new deps — reuses Markdown.)
+// STEP E — prose editor: a REAL TipTap/ProseMirror WYSIWYG editor (M4b).
+//
+// TipTap (@tiptap/react + @tiptap/starter-kit + @tiptap/pm) and the
+// `tiptap-markdown` serializer are BUILD-TIME devDependencies, inlined fully
+// into the single-file plugin/dist/index.html exactly like React and the
+// offline mermaid renderer (ADR-0002 D3) — the "zero RUNTIME dependency"
+// posture means nothing is fetched at runtime, NOT "no build-time libs".
+//
+// The prose block's field is markdown (`md`). `tiptap-markdown` parses `md`
+// into the ProseMirror doc on mount and serializes the StarterKit node tree
+// back to markdown on every change via `editor.storage.markdown.getMarkdown()`
+// — a lossless round-trip for common markdown (headings, lists, bold/italic,
+// inline + fenced code, links, blockquote, hr). The serialized markdown folds
+// back through the UNCHANGED `set({ md })` → deriveWorkingDoc seam: the
+// transport / persist contract is untouched.
+//
+// A graceful inline fallback (the in-house markdown textarea + bundled
+// `Markdown` preview) is rendered ONLY if the editor genuinely throws — it is
+// an error boundary, never the primary path.
 // ---------------------------------------------------------------------------
 
-function ProseEditor({
+/** The in-house markdown textarea + preview — the genuine-failure fallback. */
+function ProseFallbackEditor({
   value,
   onChange,
 }: {
@@ -272,14 +304,8 @@ function ProseEditor({
   return (
     <div>
       <AreaField label="Prose (markdown)" value={value} onChange={onChange} rows={8} />
-      <div
-        style={{
-          fontSize: 12,
-          color: theme.textMuted,
-          margin: '4px 0 6px',
-        }}
-      >
-        Live preview
+      <div style={{ fontSize: 12, color: theme.textMuted, margin: '4px 0 6px' }}>
+        Live preview (rich editor unavailable — markdown fallback)
       </div>
       <div
         data-testid="prose-preview"
@@ -298,6 +324,232 @@ function ProseEditor({
       </div>
     </div>
   );
+}
+
+function ToolbarButton({
+  label,
+  active,
+  onClick,
+  theme,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  theme: ThemeTokens;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      onMouseDown={(e) => {
+        // Keep the ProseMirror selection — toolbar clicks must not blur it.
+        e.preventDefault();
+      }}
+      onClick={onClick}
+      style={{
+        fontSize: 12,
+        padding: '3px 8px',
+        border: `1px solid ${theme.borderStrong}`,
+        borderRadius: 4,
+        background: active ? theme.accent : theme.surfaceMuted,
+        color: active ? theme.onAccent : theme.textDetail,
+        cursor: 'pointer',
+        fontWeight: active ? 700 : 500,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** The TipTap WYSIWYG prose editor. Throws are caught by ProseEditor's boundary. */
+function TiptapProseEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const theme = useTheme();
+  // `value` is the source of truth held by the modal draft; we only push it
+  // INTO the editor on mount (and external resets), and pull markdown OUT on
+  // every transaction. A ref tracks the last value WE emitted so an external
+  // change (e.g. kind re-seed) re-syncs without clobbering local typing.
+  const lastEmitted = useRef<string>(value);
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      TiptapMarkdown.configure({
+        html: false,
+        tightLists: true,
+        linkify: false,
+        breaks: false,
+        transformPastedText: true,
+      }),
+    ],
+    content: value,
+    onUpdate({ editor: ed }) {
+      const md = ed.storage.markdown.getMarkdown() as string;
+      lastEmitted.current = md;
+      onChange(md);
+    },
+    editorProps: {
+      attributes: {
+        'aria-label': 'Prose (rich text)',
+        'data-testid': 'prose-richtext',
+        style: 'outline: none; min-height: 140px;',
+      },
+    },
+  });
+
+  // Re-sync if `value` changes from OUTSIDE the editor (kind re-seed / reset).
+  useEffect(() => {
+    if (!editor) return;
+    if (value !== lastEmitted.current) {
+      lastEmitted.current = value;
+      editor.commands.setContent(value, false);
+    }
+  }, [value, editor]);
+
+  if (!editor) {
+    return (
+      <div style={{ fontSize: 12, color: theme.textMuted }}>Loading editor…</div>
+    );
+  }
+
+  const tb: Array<{ label: string; active: boolean; run: () => void }> = [
+    {
+      label: 'B',
+      active: editor.isActive('bold'),
+      run: () => editor.chain().focus().toggleBold().run(),
+    },
+    {
+      label: 'I',
+      active: editor.isActive('italic'),
+      run: () => editor.chain().focus().toggleItalic().run(),
+    },
+    {
+      label: '<>',
+      active: editor.isActive('code'),
+      run: () => editor.chain().focus().toggleCode().run(),
+    },
+    {
+      label: 'H1',
+      active: editor.isActive('heading', { level: 1 }),
+      run: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    },
+    {
+      label: 'H2',
+      active: editor.isActive('heading', { level: 2 }),
+      run: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+    },
+    {
+      label: 'H3',
+      active: editor.isActive('heading', { level: 3 }),
+      run: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+    },
+    {
+      label: '• List',
+      active: editor.isActive('bulletList'),
+      run: () => editor.chain().focus().toggleBulletList().run(),
+    },
+    {
+      label: '1. List',
+      active: editor.isActive('orderedList'),
+      run: () => editor.chain().focus().toggleOrderedList().run(),
+    },
+    {
+      label: 'Quote',
+      active: editor.isActive('blockquote'),
+      run: () => editor.chain().focus().toggleBlockquote().run(),
+    },
+    {
+      label: 'Code block',
+      active: editor.isActive('codeBlock'),
+      run: () => editor.chain().focus().toggleCodeBlock().run(),
+    },
+  ];
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 6 }}>
+        Prose (rich text — markdown round-trips on save)
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 5,
+          marginBottom: 6,
+        }}
+      >
+        {tb.map((b) => (
+          <ToolbarButton
+            key={b.label}
+            label={b.label}
+            active={b.active}
+            onClick={b.run}
+            theme={theme}
+          />
+        ))}
+      </div>
+      <div
+        style={{
+          border: `1px solid ${theme.borderStrong}`,
+          borderRadius: 6,
+          padding: '8px 12px',
+          background: theme.surface,
+          color: theme.text,
+          fontSize: 14,
+          maxHeight: 320,
+          overflowY: 'auto',
+        }}
+      >
+        <EditorContent editor={editor} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Prose editor with a genuine-failure error boundary: if TipTap/ProseMirror
+ * throws while parsing/rendering, degrade inline to the in-house markdown
+ * textarea so the modal (and the SPA) never crash. The boundary is NOT the
+ * primary path — a healthy editor never reaches the fallback.
+ */
+class ProseEditor extends Component<
+  { value: string; onChange: (v: string) => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(err: unknown) {
+    // Inert log — never throws, never networks (offline-safe).
+    console.error('[planos] prose rich editor failed; using markdown fallback', err);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <ProseFallbackEditor
+          value={this.props.value}
+          onChange={this.props.onChange}
+        />
+      );
+    }
+    return (
+      <TiptapProseEditor
+        value={this.props.value}
+        onChange={this.props.onChange}
+      />
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
