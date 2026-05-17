@@ -18,8 +18,14 @@
  *     network, no spawn, no model, no clock. Timestamps pass through the doc's
  *     own meta.createdAt — this module never reads the system clock.
  *
- * Reads never throw on missing data: missing dir / file → null / []. Only
- * saveRevision throws (append-only + path-traversal violations).
+ * Reads never throw on MISSING data: missing dir / file → null / []. But a
+ * file that EXISTS yet is CORRUPT (JSON parse / non-ENOENT read failure) is no
+ * longer conflated with "missing": loadLatest / loadRevision throw the typed
+ * PrdCorruptError (loud, distinguishable), and listRevisions /
+ * listRevisionDocs report the revision with `corrupt: true` rather than
+ * silently dropping it (so a damaged head can never shorten the on-disk chain
+ * and mis-reset the revision counter). saveRevision still throws on append-only
+ * + path-traversal violations.
  *
  * Run: node --test tests/prd-store.test.mjs
  */
@@ -117,22 +123,78 @@ export function prdPath(rootDir, docId) {
 }
 
 // ---------------------------------------------------------------------------
-// Read helpers (never throw on missing data — always return null / []).
+// Read helpers.
+//
+// CONTRACT (the [1] fix): a MISSING file and a CORRUPT file are NO LONGER
+// conflated. They are categorically different states with different correct
+// responses:
+//
+//   - MISSING (ENOENT): the revision/dir simply does not exist yet. This is the
+//     normal "fresh document / no prior revision" state. It must keep yielding
+//     the "not present" result (null / skipped) EXACTLY as before so that
+//     first-revision creation, no-op dedupe and chain assembly are unaffected.
+//
+//   - CORRUPT (the file EXISTS but JSON.parse fails, or a non-ENOENT read
+//     error): on-disk damage. Silently mapping this to "missing" is the bug —
+//     it makes loadLatest → null → nextRevision reset to 1 → saveRevision later
+//     throw the confusing "r001 already exists" append-only error, i.e. silent
+//     data-loss risk. So corruption is now a DISTINCT, loud, typed signal
+//     (PrdCorruptError) the callers must explicitly handle.
+//
+// This module still NEVER blocks the PRD round-trip (design.md §5): being loud
+// here just hands the caller a typed error; src/hook/prd.mjs catches it and
+// degrades VISIBLY (and crucially recovers the true revision counter from the
+// on-disk filenames so the append-only guard is never tripped) instead of
+// silently losing the chain head.
 // ---------------------------------------------------------------------------
 
 /**
- * Try to read and parse a JSON file. Returns null if the file does not exist
- * or cannot be parsed (never throws).
+ * Typed signal: a PRD file EXISTS on disk but could not be read/parsed as JSON
+ * (corruption / truncation / a non-ENOENT read error). Distinct from "the file
+ * is absent" (which the readers still represent as null / a skipped entry).
+ */
+export class PrdCorruptError extends Error {
+  /**
+   * @param {string} filePath  The on-disk path that failed to parse.
+   * @param {unknown} cause     The underlying read/parse error.
+   */
+  constructor(filePath, cause) {
+    const reason = cause && cause.message ? cause.message : String(cause);
+    super(`PRD revision file is corrupt (exists but unreadable): ${filePath} — ${reason}`, { cause });
+    this.name = "PrdCorruptError";
+    this.filePath = filePath;
+  }
+}
+
+/**
+ * Read + parse a JSON file, distinguishing "absent" from "corrupt":
+ *
+ *   - ENOENT (file does not exist)            → returns `null` (as before).
+ *   - File exists but JSON.parse / read fails → throws {@link PrdCorruptError}.
+ *
+ * Callers that must stay non-blocking catch PrdCorruptError explicitly and
+ * decide how to degrade — they MUST NOT treat it as "missing" (that is the bug
+ * this fix removes).
  *
  * @param {string} filePath
  * @returns {unknown | null}
  */
-function tryReadJson(filePath) {
+function readJsonOrThrow(filePath) {
+  let raw;
   try {
-    const raw = readFileSync(filePath, "utf8");
+    raw = readFileSync(filePath, "utf8");
+  } catch (err) {
+    // ENOENT == "not present" → preserve the historical null sentinel so a
+    // fresh doc id still loads as null and nextRevision still starts at 1.
+    if (err && err.code === "ENOENT") return null;
+    // Any other read failure means the file is THERE but unreadable → loud.
+    throw new PrdCorruptError(filePath, err);
+  }
+  try {
     return JSON.parse(raw);
-  } catch {
-    return null;
+  } catch (err) {
+    // The file exists on disk but is not valid JSON → corruption, not absence.
+    throw new PrdCorruptError(filePath, err);
   }
 }
 
@@ -146,7 +208,10 @@ function tryReadJson(filePath) {
 export function loadLatest(rootDir, docId) {
   const dir = prdPath(rootDir, docId);
   const latestPath = join(dir, "latest.json");
-  const doc = tryReadJson(latestPath);
+  // Absent → null (fresh doc). EXISTS-but-corrupt → throws PrdCorruptError so
+  // the caller cannot silently treat a damaged head as "no prior revision"
+  // (which would mis-reset the counter to 1 — the [1] bug).
+  const doc = readJsonOrThrow(latestPath);
   if (doc == null || typeof doc !== "object" || Array.isArray(doc)) return null;
   const revision =
     doc.meta && typeof doc.meta.revision === "number"
@@ -167,49 +232,127 @@ export function loadLatest(rootDir, docId) {
 export function loadRevision(rootDir, docId, n) {
   const dir = prdPath(rootDir, docId);
   const filePath = join(dir, `r${padRevision(n)}.json`);
-  const doc = tryReadJson(filePath);
+  // Absent → null (no such revision). EXISTS-but-corrupt → throws
+  // PrdCorruptError (a specific requested revision being damaged is loud, not
+  // silently "missing").
+  const doc = readJsonOrThrow(filePath);
   if (doc == null || typeof doc !== "object" || Array.isArray(doc)) return null;
   return doc;
 }
 
 /**
- * List all persisted revisions for a PRD, newest-first.
+ * Parse the meta of a single `rNNN.json` whose revision number we already know
+ * from its filename. Returns the parsed doc + extracted fields, or — when the
+ * file is corrupt — a `{ corrupt: true }` marker WITHOUT throwing, so the
+ * enumeration is never silently truncated and the revision NUMBER (the counter
+ * source of truth) is always preserved even when the body is unreadable.
+ *
+ * @param {string} dir
+ * @param {string} fileName  e.g. "r003.json"
+ * @param {number} fileRev   The revision parsed from the filename.
+ * @returns {{ revision: number, createdAt: string, doc: object | null, corrupt: boolean }}
+ */
+function readRevisionEntry(dir, fileName, fileRev) {
+  let doc;
+  try {
+    doc = readJsonOrThrow(join(dir, fileName));
+  } catch (err) {
+    if (err instanceof PrdCorruptError) {
+      // Body is damaged — keep the revision number visible (from the filename)
+      // so callers can still compute the true chain head; drop the content.
+      return { revision: fileRev, createdAt: "", doc: null, corrupt: true };
+    }
+    throw err;
+  }
+  if (doc == null || typeof doc !== "object" || Array.isArray(doc)) {
+    return { revision: fileRev, createdAt: "", doc: null, corrupt: false };
+  }
+  const metaRev =
+    doc.meta && typeof doc.meta.revision === "number"
+      ? doc.meta.revision
+      : fileRev;
+  const createdAt =
+    doc.meta && typeof doc.meta.createdAt === "string"
+      ? doc.meta.createdAt
+      : "";
+  return { revision: metaRev, createdAt, doc, corrupt: false };
+}
+
+/**
+ * Collect every `rNNN.json` filename + its filename-derived revision number for
+ * a PRD dir. Pure readdir (no content read) — cheap; used by both
+ * {@link listRevisions} and {@link listRevisionDocs} so each file is touched at
+ * most once for content.
  *
  * @param {string} rootDir
  * @param {string} docId
- * @returns {{ revision: number, createdAt: string }[]}  Newest revision first.
+ * @returns {{ dir: string, files: { fileName: string, fileRev: number }[] }}
  */
-export function listRevisions(rootDir, docId) {
+function revisionFiles(rootDir, docId) {
   const dir = prdPath(rootDir, docId);
-  if (!existsSync(dir)) return [];
-
+  if (!existsSync(dir)) return { dir, files: [] };
   let entries;
   try {
     entries = readdirSync(dir);
   } catch {
-    return [];
+    return { dir, files: [] };
   }
+  const files = [];
+  for (const f of entries) {
+    const m = /^r(\d{3})\.json$/.exec(f);
+    if (m) files.push({ fileName: f, fileRev: Number(m[1]) });
+  }
+  return { dir, files };
+}
 
-  // Collect all rNNN.json files.
-  const revFiles = entries.filter((f) => /^r\d{3}\.json$/.test(f));
-
+/**
+ * List all persisted revisions for a PRD, newest-first.
+ *
+ * Corruption handling (the [1] fix): a damaged `rNNN.json` is NOT silently
+ * dropped — its revision number (from the filename) is still reported with
+ * `corrupt: true` and an empty `createdAt`, so a corrupt head can never make
+ * the chain look shorter than it is on disk (which is what mis-reset the
+ * revision counter). Never throws.
+ *
+ * @param {string} rootDir
+ * @param {string} docId
+ * @returns {{ revision: number, createdAt: string, corrupt: boolean }[]}
+ *   Newest revision first.
+ */
+export function listRevisions(rootDir, docId) {
+  const { dir, files } = revisionFiles(rootDir, docId);
   const results = [];
-  for (const f of revFiles) {
-    const doc = tryReadJson(join(dir, f));
-    if (doc == null || typeof doc !== "object" || Array.isArray(doc)) continue;
-    const revision =
-      doc.meta && typeof doc.meta.revision === "number"
-        ? doc.meta.revision
-        : null;
-    const createdAt =
-      doc.meta && typeof doc.meta.createdAt === "string"
-        ? doc.meta.createdAt
-        : "";
-    if (revision === null) continue;
-    results.push({ revision, createdAt });
+  for (const { fileName, fileRev } of files) {
+    const e = readRevisionEntry(dir, fileName, fileRev);
+    results.push({
+      revision: e.revision,
+      createdAt: e.createdAt,
+      corrupt: e.corrupt,
+    });
   }
+  results.sort((a, b) => b.revision - a.revision);
+  return results;
+}
 
-  // Newest revision first.
+/**
+ * Like {@link listRevisions} but ALSO returns the parsed document for each
+ * non-corrupt revision in the SAME single pass — so consumers that need the
+ * full chain of docs (assemblePriorChain) read+parse each `rNNN.json` exactly
+ * ONCE instead of listing then re-loading every file (the [2] de-dupe). Corrupt
+ * files are reported with `doc: null` + `corrupt: true` (never throws, never
+ * truncates the enumeration). Newest revision first (same order as
+ * listRevisions).
+ *
+ * @param {string} rootDir
+ * @param {string} docId
+ * @returns {{ revision: number, createdAt: string, doc: object | null, corrupt: boolean }[]}
+ */
+export function listRevisionDocs(rootDir, docId) {
+  const { dir, files } = revisionFiles(rootDir, docId);
+  const results = [];
+  for (const { fileName, fileRev } of files) {
+    results.push(readRevisionEntry(dir, fileName, fileRev));
+  }
   results.sort((a, b) => b.revision - a.revision);
   return results;
 }

@@ -54,10 +54,11 @@ import {
 import { validateDocument } from '../schema/index.mjs';
 import {
   loadLatest,
-  loadRevision,
   listRevisions,
+  listRevisionDocs,
   saveRevision,
   canonicalize,
+  PrdCorruptError,
 } from '../prd/store.mjs';
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,16 @@ export function buildPrdApiHandlers(doc, chain = []) {
  * (`previousDoc` when present, else empty — `buildPrdApiHandlers` always folds
  * the current `doc` in itself, so the current revision stays retrievable).
  *
+ * [2] de-dupe: this used to call `listRevisions` (which reads+parses every
+ * `rNNN.json` to extract meta) and THEN `loadRevision` per entry (a SECOND
+ * read+parse of the very same file) — 2 reads/parses per revision file. It now
+ * uses the store's `listRevisionDocs`, which returns the parsed doc for every
+ * revision in ONE pass, so each file is read+parsed exactly ONCE. Behaviour is
+ * identical: same chain membership, same AC-17 pure-node:fs boundary (the
+ * single read still lives inside src/prd/store.mjs), same safe degrade. A
+ * corrupt revision is skipped (doc === null) exactly as the old `if (d)` guard
+ * skipped a `loadRevision` that returned null.
+ *
  * @param {string} rootDir
  * @param {string} docId
  * @param {object | undefined} previousDoc  loadLatest().doc, the degrade base.
@@ -171,9 +182,8 @@ export function assemblePriorChain(rootDir, docId, previousDoc) {
   let chain = [];
   try {
     if (typeof docId === 'string' && docId.length > 0) {
-      for (const { revision } of listRevisions(rootDir, docId)) {
-        const d = loadRevision(rootDir, docId, revision);
-        if (d) chain.push(d);
+      for (const { doc } of listRevisionDocs(rootDir, docId)) {
+        if (doc) chain.push(doc);
       }
     }
   } catch {
@@ -300,6 +310,10 @@ export function selectApproveDoc(agentDoc, nextRevision, prior, editedDocument) 
  * @param {string|null} savedPath
  * @param {string|null} persistError
  * @param {{ stale: boolean, baseRevision: number, headRevision: number } | null} [staleBase]
+ * @param {{ file: string, message: string } | null} [priorCorrupt]
+ *   Set when the on-disk head revision was CORRUPT (the [1] fix). Surfaced
+ *   loudly so the agent knows the prior head is damaged and that this revision
+ *   was appended ABOVE it (no diff base, no silent continuity assumption).
  * @returns {string}
  */
 export function buildPersistenceNote(
@@ -308,6 +322,7 @@ export function buildPersistenceNote(
   savedPath,
   persistError,
   staleBase = null,
+  priorCorrupt = null,
 ) {
   const lines = ['## Persisted document (work from THIS revision)'];
   if (picked.noop) {
@@ -350,6 +365,18 @@ export function buildPersistenceNote(
         `while the chain head was ${staleBase.headRevision}. Per the ` +
         `single-reviewer blocking flow the approved document was still ` +
         `persisted off the current head (not rejected).`,
+    );
+  }
+  if (priorCorrupt && priorCorrupt.file) {
+    lines.push(
+      '',
+      `WARNING: the previously persisted head revision on disk is CORRUPT ` +
+        `(${priorCorrupt.file}) and could not be read. This revision was ` +
+        `appended ABOVE the damaged one (the revision counter was recovered ` +
+        `from the on-disk filenames, NOT reset). There is therefore no ` +
+        `reliable diff base against the prior revision — do not assume ` +
+        `continuity with it; the corrupt file was left untouched for manual ` +
+        `recovery.`,
     );
   }
   return lines.join('\n');
@@ -445,16 +472,38 @@ export async function handlePrd(options = {}) {
   const authored = planToDocument(planText, prdDegradeOpts);
 
   // 3. Load the prior persisted revision (diff base) keyed by the stable doc
-  //    id. Pure node:fs read (src/prd/store.mjs) — AC-17-clean. Missing → null.
+  //    id. Pure node:fs read (src/prd/store.mjs) — AC-17-clean.
+  //
+  //    CALLER CONTRACT for the [1] fix (corrupt head ≠ missing head):
+  //      - Missing head (loadLatest → null): genuinely no prior revision →
+  //        prior = null, nextRevision = 1 (first-revision creation — unchanged).
+  //      - prdPath throws (hostile/invalid id): no persistence is reachable →
+  //        prior = null, nextRevision = 1, no chain (unchanged).
+  //      - CORRUPT head (loadLatest throws PrdCorruptError): the head EXISTS
+  //        but is damaged. We must NEVER block the round-trip (design.md §5),
+  //        but we must ALSO NOT pretend the chain is empty — doing so reset the
+  //        counter to 1 and made saveRevision later throw the confusing
+  //        "r001 already exists" append-only error (silent data-loss risk).
+  //        So instead we degrade VISIBLY: no diff base (prior stays null so the
+  //        no-op compare cannot run against a doc we could not read), but the
+  //        next revision number is recovered from the on-disk filenames
+  //        (listRevisions still reports a corrupt revision with its filename
+  //        number) so the new revision is appended ABOVE the damaged head and
+  //        the append-only guard is never tripped. The corruption is then
+  //        surfaced in the success payload (priorCorrupt) — loud, not silent.
   let prior = null;
+  let priorCorrupt = null; // { file: string, message: string } | null
+  const hasId = typeof authored.id === 'string' && authored.id.length > 0;
   try {
-    prior =
-      typeof authored.id === 'string' && authored.id.length > 0
-        ? loadLatest(rootDir, authored.id)
-        : null;
-  } catch {
-    // A hostile/invalid id only throws from prdPath; never block the round-trip
-    // on a persistence-read failure — proceed with no diff base.
+    prior = hasId ? loadLatest(rootDir, authored.id) : null;
+  } catch (err) {
+    if (err instanceof PrdCorruptError) {
+      priorCorrupt = {
+        file: err.filePath,
+        message: err.message,
+      };
+    }
+    // Either way the diff base is unavailable; never block the round-trip.
     prior = null;
   }
 
@@ -463,8 +512,28 @@ export async function handlePrd(options = {}) {
   // document's own meta.revision is normalised so saveRevision writes rNNN
   // matching the chain (the agent-authored revision is advisory only — the
   // persisted chain is the source of truth for monotonicity).
-  const nextRevision =
+  //
+  // When the head is corrupt we cannot trust loadLatest's revision, so derive
+  // the true chain head from the on-disk rNNN.json filenames (listRevisions
+  // reports corrupt entries with their filename-derived revision number, never
+  // throws). nextRevision = highest-on-disk + 1 so we append ABOVE the damaged
+  // revision instead of colliding with r001.
+  let nextRevision =
     prior && typeof prior.revision === 'number' ? prior.revision + 1 : 1;
+  if (priorCorrupt !== null && hasId) {
+    let maxOnDisk = 0;
+    try {
+      for (const r of listRevisions(rootDir, authored.id)) {
+        if (typeof r.revision === 'number' && r.revision > maxOnDisk) {
+          maxOnDisk = r.revision;
+        }
+      }
+    } catch {
+      // listRevisions never throws by contract; defensive only.
+      maxOnDisk = 0;
+    }
+    if (maxOnDisk + 1 > nextRevision) nextRevision = maxOnDisk + 1;
+  }
   const doc = {
     ...authored,
     meta: { ...authored.meta, revision: nextRevision },
@@ -531,6 +600,15 @@ export async function handlePrd(options = {}) {
   //    output. Persistence is pure node:fs.
   let output;
   if (decision.behavior === 'deny') {
+    // Surface a corrupt on-disk head on the deny/revise path too: nothing is
+    // persisted here, but the agent should know its persisted chain head could
+    // not be read as a diff base (parity with the approve-path priorCorrupt).
+    if (priorCorrupt !== null && typeof decision.message === 'string') {
+      decision.message =
+        `WARNING: the on-disk PRD head revision is CORRUPT ` +
+        `(${priorCorrupt.file}) and could not be read as a diff base.\n\n` +
+        decision.message;
+    }
     output = toPermissionRequestOutput(decision);
   } else {
     let savedPath = null;
@@ -584,6 +662,7 @@ export async function handlePrd(options = {}) {
       savedPath,
       persistError,
       staleBase,
+      priorCorrupt,
     );
     const m2Summary =
       typeof decision.message === 'string' && decision.message.length > 0
@@ -599,7 +678,10 @@ export async function handlePrd(options = {}) {
     const composed =
       m2Summary !== null
         ? `${persistenceNote}\n\n${m2Summary}`
-        : reviewerChangedDoc || picked.noop || persistError !== null
+        : reviewerChangedDoc ||
+            picked.noop ||
+            persistError !== null ||
+            priorCorrupt !== null
           ? persistenceNote
           : null;
     const approveDecision =
@@ -618,6 +700,11 @@ export async function handlePrd(options = {}) {
           noop: picked.noop,
           ...(savedPath !== null ? { path: savedPath } : {}),
           ...(persistError !== null ? { error: persistError } : {}),
+          // [1] LOUD, not silent: a corrupt head was detected. The new
+          // revision was still appended ABOVE the damaged one (no counter
+          // mis-reset, no confusing "r001 already exists"), and the agent is
+          // told the on-disk head is damaged so it does not assume continuity.
+          ...(priorCorrupt !== null ? { priorCorrupt } : {}),
         },
       },
     };

@@ -1475,48 +1475,93 @@ function prdPath(rootDir, docId) {
   }
   return resolve2(rootDir, "prds", docId);
 }
-function tryReadJson(filePath) {
+var PrdCorruptError = class extends Error {
+  /**
+   * @param {string} filePath  The on-disk path that failed to parse.
+   * @param {unknown} cause     The underlying read/parse error.
+   */
+  constructor(filePath, cause) {
+    const reason = cause && cause.message ? cause.message : String(cause);
+    super(`PRD revision file is corrupt (exists but unreadable): ${filePath} — ${reason}`, { cause });
+    this.name = "PrdCorruptError";
+    this.filePath = filePath;
+  }
+};
+function readJsonOrThrow(filePath) {
+  let raw;
   try {
-    const raw = readFileSync3(filePath, "utf8");
+    raw = readFileSync3(filePath, "utf8");
+  } catch (err) {
+    if (err && err.code === "ENOENT") return null;
+    throw new PrdCorruptError(filePath, err);
+  }
+  try {
     return JSON.parse(raw);
-  } catch {
-    return null;
+  } catch (err) {
+    throw new PrdCorruptError(filePath, err);
   }
 }
 function loadLatest(rootDir, docId) {
   const dir = prdPath(rootDir, docId);
   const latestPath = join(dir, "latest.json");
-  const doc = tryReadJson(latestPath);
+  const doc = readJsonOrThrow(latestPath);
   if (doc == null || typeof doc !== "object" || Array.isArray(doc)) return null;
   const revision = doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : null;
   if (revision === null) return null;
   return { doc, revision };
 }
-function loadRevision(rootDir, docId, n) {
-  const dir = prdPath(rootDir, docId);
-  const filePath = join(dir, `r${padRevision(n)}.json`);
-  const doc = tryReadJson(filePath);
-  if (doc == null || typeof doc !== "object" || Array.isArray(doc)) return null;
-  return doc;
+function readRevisionEntry(dir, fileName, fileRev) {
+  let doc;
+  try {
+    doc = readJsonOrThrow(join(dir, fileName));
+  } catch (err) {
+    if (err instanceof PrdCorruptError) {
+      return { revision: fileRev, createdAt: "", doc: null, corrupt: true };
+    }
+    throw err;
+  }
+  if (doc == null || typeof doc !== "object" || Array.isArray(doc)) {
+    return { revision: fileRev, createdAt: "", doc: null, corrupt: false };
+  }
+  const metaRev = doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : fileRev;
+  const createdAt = doc.meta && typeof doc.meta.createdAt === "string" ? doc.meta.createdAt : "";
+  return { revision: metaRev, createdAt, doc, corrupt: false };
 }
-function listRevisions(rootDir, docId) {
+function revisionFiles(rootDir, docId) {
   const dir = prdPath(rootDir, docId);
-  if (!existsSync2(dir)) return [];
+  if (!existsSync2(dir)) return { dir, files: [] };
   let entries;
   try {
     entries = readdirSync(dir);
   } catch {
-    return [];
+    return { dir, files: [] };
   }
-  const revFiles = entries.filter((f) => /^r\d{3}\.json$/.test(f));
+  const files = [];
+  for (const f of entries) {
+    const m = /^r(\d{3})\.json$/.exec(f);
+    if (m) files.push({ fileName: f, fileRev: Number(m[1]) });
+  }
+  return { dir, files };
+}
+function listRevisions(rootDir, docId) {
+  const { dir, files } = revisionFiles(rootDir, docId);
   const results = [];
-  for (const f of revFiles) {
-    const doc = tryReadJson(join(dir, f));
-    if (doc == null || typeof doc !== "object" || Array.isArray(doc)) continue;
-    const revision = doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : null;
-    const createdAt = doc.meta && typeof doc.meta.createdAt === "string" ? doc.meta.createdAt : "";
-    if (revision === null) continue;
-    results.push({ revision, createdAt });
+  for (const { fileName, fileRev } of files) {
+    const e = readRevisionEntry(dir, fileName, fileRev);
+    results.push({
+      revision: e.revision,
+      createdAt: e.createdAt,
+      corrupt: e.corrupt
+    });
+  }
+  results.sort((a, b) => b.revision - a.revision);
+  return results;
+}
+function listRevisionDocs(rootDir, docId) {
+  const { dir, files } = revisionFiles(rootDir, docId);
+  const results = [];
+  for (const { fileName, fileRev } of files) {
+    results.push(readRevisionEntry(dir, fileName, fileRev));
   }
   results.sort((a, b) => b.revision - a.revision);
   return results;
@@ -1595,9 +1640,8 @@ function assemblePriorChain(rootDir, docId, previousDoc) {
   let chain = [];
   try {
     if (typeof docId === "string" && docId.length > 0) {
-      for (const { revision } of listRevisions(rootDir, docId)) {
-        const d = loadRevision(rootDir, docId, revision);
-        if (d) chain.push(d);
+      for (const { doc } of listRevisionDocs(rootDir, docId)) {
+        if (doc) chain.push(doc);
       }
     }
   } catch {
@@ -1637,7 +1681,7 @@ function selectApproveDoc(agentDoc, nextRevision, prior, editedDocument) {
   }
   return { doc: chosen, persist: true, source, noop: false };
 }
-function buildPersistenceNote(picked, effectiveRevision, savedPath, persistError, staleBase = null) {
+function buildPersistenceNote(picked, effectiveRevision, savedPath, persistError, staleBase = null, priorCorrupt = null) {
   const lines = ["## Persisted document (work from THIS revision)"];
   if (picked.noop) {
     lines.push(
@@ -1668,6 +1712,12 @@ function buildPersistenceNote(picked, effectiveRevision, savedPath, persistError
       `Note: the review was made against revision ${staleBase.baseRevision} while the chain head was ${staleBase.headRevision}. Per the single-reviewer blocking flow the approved document was still persisted off the current head (not rejected).`
     );
   }
+  if (priorCorrupt && priorCorrupt.file) {
+    lines.push(
+      "",
+      `WARNING: the previously persisted head revision on disk is CORRUPT (${priorCorrupt.file}) and could not be read. This revision was appended ABOVE the damaged one (the revision counter was recovered from the on-disk filenames, NOT reset). There is therefore no reliable diff base against the prior revision — do not assume continuity with it; the corrupt file was left untouched for manual recovery.`
+    );
+  }
   return lines.join("\n");
 }
 async function handlePrd(options = {}) {
@@ -1687,12 +1737,33 @@ async function handlePrd(options = {}) {
   const prdDegradeOpts = { type: "prd", ...degradeOpts };
   const authored = planToDocument(planText, prdDegradeOpts);
   let prior = null;
+  let priorCorrupt = null;
+  const hasId = typeof authored.id === "string" && authored.id.length > 0;
   try {
-    prior = typeof authored.id === "string" && authored.id.length > 0 ? loadLatest(rootDir, authored.id) : null;
-  } catch {
+    prior = hasId ? loadLatest(rootDir, authored.id) : null;
+  } catch (err) {
+    if (err instanceof PrdCorruptError) {
+      priorCorrupt = {
+        file: err.filePath,
+        message: err.message
+      };
+    }
     prior = null;
   }
-  const nextRevision = prior && typeof prior.revision === "number" ? prior.revision + 1 : 1;
+  let nextRevision = prior && typeof prior.revision === "number" ? prior.revision + 1 : 1;
+  if (priorCorrupt !== null && hasId) {
+    let maxOnDisk = 0;
+    try {
+      for (const r of listRevisions(rootDir, authored.id)) {
+        if (typeof r.revision === "number" && r.revision > maxOnDisk) {
+          maxOnDisk = r.revision;
+        }
+      }
+    } catch {
+      maxOnDisk = 0;
+    }
+    if (maxOnDisk + 1 > nextRevision) nextRevision = maxOnDisk + 1;
+  }
   const doc = {
     ...authored,
     meta: { ...authored.meta, revision: nextRevision }
@@ -1723,6 +1794,11 @@ async function handlePrd(options = {}) {
   );
   let output;
   if (decision.behavior === "deny") {
+    if (priorCorrupt !== null && typeof decision.message === "string") {
+      decision.message = `WARNING: the on-disk PRD head revision is CORRUPT (${priorCorrupt.file}) and could not be read as a diff base.
+
+` + decision.message;
+    }
     output = toPermissionRequestOutput(decision);
   } else {
     let savedPath = null;
@@ -1747,13 +1823,14 @@ async function handlePrd(options = {}) {
       effectiveRevision,
       savedPath,
       persistError,
-      staleBase
+      staleBase,
+      priorCorrupt
     );
     const m2Summary = typeof decision.message === "string" && decision.message.length > 0 ? decision.message : null;
     const reviewerChangedDoc = picked.source === "reviewer-edited";
     const composed = m2Summary !== null ? `${persistenceNote}
 
-${m2Summary}` : reviewerChangedDoc || picked.noop || persistError !== null ? persistenceNote : null;
+${m2Summary}` : reviewerChangedDoc || picked.noop || persistError !== null || priorCorrupt !== null ? persistenceNote : null;
     const approveDecision = composed !== null ? { behavior: "allow", message: composed } : { behavior: "allow" };
     output = {
       hookSpecificOutput: {
@@ -1766,7 +1843,12 @@ ${m2Summary}` : reviewerChangedDoc || picked.noop || persistError !== null ? per
           source: picked.source,
           noop: picked.noop,
           ...savedPath !== null ? { path: savedPath } : {},
-          ...persistError !== null ? { error: persistError } : {}
+          ...persistError !== null ? { error: persistError } : {},
+          // [1] LOUD, not silent: a corrupt head was detected. The new
+          // revision was still appended ABOVE the damaged one (no counter
+          // mis-reset, no confusing "r001 already exists"), and the agent is
+          // told the on-disk head is damaged so it does not assume continuity.
+          ...priorCorrupt !== null ? { priorCorrupt } : {}
         }
       }
     };

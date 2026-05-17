@@ -26,7 +26,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -504,6 +504,85 @@ await test('AC-P10: append-only invariant — the persisted chain is immutable a
     const r1After = JSON.stringify(loadRevision(rootDir, PRD_DOC.id, 1));
     assert.equal(r1First, r1After, 'r001 is byte-identical after r002 lands (append-only)');
     assert.ok(existsSync(join(rootDir, 'prds', PRD_DOC.id, 'r002.json')), 'r002 added, not overwritten');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// [1] REGRESSION — a CORRUPT head revision must NOT be silently treated as
+// "missing" (which reset nextRevision→1 and made saveRevision throw the
+// confusing "r001 already exists" append-only error). It must degrade VISIBLY:
+// append ABOVE the damaged head (counter recovered from on-disk filenames),
+// never block the round-trip (design.md §5), and surface the corruption.
+//
+// FAIL-BEFORE: with the old conflated tryReadJson, loadLatest(corrupt)→null →
+//   nextRevision=1 → saveRevision sees r001.json still on disk → throws
+//   append-only → prd.persisted:false, prd.error contains "already exists",
+//   no priorCorrupt, no second revision ever lands. (r001 also silently lost.)
+// PASS-AFTER: prd.persisted:true, prd.revision===2, prd.priorCorrupt present,
+//   r002.json written, the intact r001.json untouched, exit 0.
+// ---------------------------------------------------------------------------
+
+await test('[1] corrupt latest.json head → appended ABOVE (no counter mis-reset), corruption surfaced, round-trip never blocked', async () => {
+  const rootDir = makeTempRoot();
+  try {
+    // Land a clean r001 + latest.json.
+    const first = await runScriptedPrd(PRD_DOC, 'approve', rootDir);
+    assert.equal(first.code, 0, 'first approve exits 0');
+    const r001Before = readFileSync(
+      join(rootDir, 'prds', PRD_DOC.id, 'r001.json'),
+      'utf8',
+    );
+
+    // Corrupt ONLY the head pointer (latest.json). r001.json stays intact —
+    // this is exactly the "damaged head, chain still on disk" blast radius.
+    const latestPath = join(rootDir, 'prds', PRD_DOC.id, 'latest.json');
+    writeFileSync(latestPath, '{ this is not valid json', 'utf8');
+
+    // Second approve of a revised doc. Must NOT throw the confusing
+    // "r001 already exists" and must NOT be blocked.
+    const { stdout, stderr, code } = await runScriptedPrd(
+      PRD_DOC_REVISED,
+      'approve',
+      rootDir,
+    );
+    assert.equal(code, 0, `second approve exits 0, got ${code}. stderr: ${stderr}`);
+    const prd = JSON.parse(stdout.trim()).hookSpecificOutput.prd;
+
+    // Counter was recovered from the on-disk filenames, NOT reset to 1.
+    assert.equal(prd.revision, 2, 'next revision recovered as 2 (NOT mis-reset to 1)');
+    assert.equal(prd.persisted, true, 'the new revision actually persisted');
+    assert.ok(
+      !(typeof prd.error === 'string' && /already exists/i.test(prd.error)),
+      `must NOT surface the confusing append-only error, got: ${prd.error}`,
+    );
+
+    // Corruption is LOUD, not silent.
+    assert.ok(prd.priorCorrupt, 'priorCorrupt surfaced in the success payload');
+    assert.ok(
+      typeof prd.priorCorrupt.file === 'string' &&
+        prd.priorCorrupt.file.includes('latest.json'),
+      'priorCorrupt names the damaged file',
+    );
+
+    // r002.json landed; the intact r001.json was left untouched (no data loss).
+    assert.ok(
+      existsSync(join(rootDir, 'prds', PRD_DOC.id, 'r002.json')),
+      'r002.json appended above the damaged head',
+    );
+    const r001After = readFileSync(
+      join(rootDir, 'prds', PRD_DOC.id, 'r001.json'),
+      'utf8',
+    );
+    assert.equal(r001After, r001Before, 'intact r001.json untouched (no data loss)');
+
+    // The agent-facing message warns about the corrupt head loudly.
+    const msg = JSON.parse(stdout.trim()).hookSpecificOutput.decision.message;
+    assert.ok(
+      typeof msg === 'string' && /corrupt/i.test(msg),
+      'persistence note warns the prior head is corrupt',
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
