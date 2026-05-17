@@ -144,5 +144,18 @@ export function buildEnvelope(decision, doc, editorState) {
     envelope.globalComment = state.globalComment;
   }
 
+  // M3: carry the reviewer's full edited working document on APPROVE so the
+  // PRD path can persist the structural edits AS the next revision. The ops[]
+  // above stay advisory (M2). Only attached on approve — revise is the
+  // unchanged re-author loop and must not smuggle a competing doc.
+  if (
+    decision === 'approve' &&
+    state.editedDocument &&
+    typeof state.editedDocument === 'object' &&
+    !Array.isArray(state.editedDocument)
+  ) {
+    envelope.editedDocument = state.editedDocument;
+  }
+
   return envelope;
 }

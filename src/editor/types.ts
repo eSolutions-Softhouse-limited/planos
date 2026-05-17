@@ -182,6 +182,13 @@ export interface EditorState {
   answers: Record<string, string>;
   /** Optional document-wide comment. */
   globalComment?: string;
+  /**
+   * M3: the reviewer's full edited working document, derived from the base doc
+   * + the affordances above. Consumed by the envelope builder on Approve so
+   * the PRD path persists the structural edits as the next revision. Advisory
+   * comment/globalComment are NOT folded into this — they stay envelope-only.
+   */
+  editedDocument?: PlanDocument;
 }
 
 export type EditorDecision = 'approve' | 'revise';

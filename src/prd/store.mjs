@@ -40,10 +40,15 @@ const isObj = (v) =>
  * Stable, deterministic canonical JSON: object keys are sorted recursively.
  * Arrays keep order. Identical to the canonicalize() helper in structural.mjs.
  *
+ * Exported so the PRD round-trip can content-dedupe an approve-with-edits
+ * against the prior persisted revision using THIS exact byte-stable ordering
+ * (M3 no-op correctness — same ordering the on-disk rNNN.json files use, so
+ * "canonically equal" means "byte-identical once persisted").
+ *
  * @param {unknown} value
  * @returns {string}
  */
-function canonicalize(value) {
+export function canonicalize(value) {
   if (Array.isArray(value)) {
     return `[${value.map(canonicalize).join(",")}]`;
   }

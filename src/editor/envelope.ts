@@ -39,6 +39,15 @@ export interface FeedbackEnvelope {
   baseRevision: number;
   ops: Edit[];
   globalComment?: string;
+  /**
+   * M3 ("edits actually stick"): the reviewer's full edited WORKING document
+   * (canonical Document shape). Present on Approve so the PRD path persists the
+   * reviewer's structural edits AS the next revision (the ops[] above stay
+   * advisory — M2). Omitted on revise (the re-author loop is unchanged). The
+   * server-side persistence revalidates this; an absent/invalid value falls
+   * back to the agent-authored doc, so this never blocks the round-trip.
+   */
+  editedDocument?: PlanDocument;
 }
 
 /**

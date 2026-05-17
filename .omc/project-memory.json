@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "npm run build:bin 2>&1 | tail -20",
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; node --test tests/*.test.mjs tests/harness/*.test.mjs > /tmp/planos_m3.log 2>&1; echo \"suite exit=$?\"; grep -E \"^ℹ (tests|pass|fail)\" /tmp/planos_m3.log; npm run build:bin >/dev/null 2>&1 && echo \"build:bin OK\" || echo \"build:bin FAIL\"; npm run build:editor >/dev/null 2>&1 && echo \"build:editor OK\" || echo \"build:editor FAIL\"; git status --porcelain | grep -c . | xargs echo \"changed files:\"",
     "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
     "lintCommand": null,
     "devCommand": null,
@@ -154,8 +154,8 @@
     },
     {
       "path": "src/server/index.mjs",
-      "accessCount": 8,
-      "lastAccessed": 1779012982162,
+      "accessCount": 9,
+      "lastAccessed": 1779013397105,
       "type": "file"
     },
     {
@@ -178,8 +178,8 @@
     },
     {
       "path": "src/schema/index.mjs",
-      "accessCount": 5,
-      "lastAccessed": 1779011164394,
+      "accessCount": 6,
+      "lastAccessed": 1779013408866,
       "type": "file"
     },
     {

@@ -18,6 +18,7 @@ import {
 } from './envelope';
 import { ExportControls, PrintStyles, SCREEN_ONLY_ATTR } from './export';
 import { loadDocument } from './loader';
+import { deriveWorkingDoc } from './workingDoc';
 import { ThemeProvider, useTheme, useThemeControl } from './theme';
 import {
   type EditorCallbacks,
@@ -102,6 +103,16 @@ function AppInner({
     [doc]
   );
 
+  // M3: the single mutable WORKING COPY of the document. It is derived purely
+  // from the loaded base doc + the reviewer's existing edit affordances (task
+  // field patches + openQuestion answers). This is what Approve persists; the
+  // comment/globalComment envelope stays advisory (M2). M4/M5 add their richer
+  // edit/reorder mappings inside deriveWorkingDoc — App keeps this one seam.
+  const workingDoc = useMemo(
+    () => (doc ? deriveWorkingDoc(doc, { edits, answers }) : null),
+    [doc, edits, answers]
+  );
+
   const state: EditorState = useMemo(
     () => ({
       edits,
@@ -112,8 +123,10 @@ function AppInner({
         Object.entries(answers).filter(([, v]) => v.trim().length > 0)
       ),
       globalComment: globalComment.trim() || undefined,
+      // Carried on approve only (envelope.impl.mjs gates on decision).
+      editedDocument: workingDoc ?? undefined,
     }),
-    [edits, comments, answers, globalComment]
+    [edits, comments, answers, globalComment, workingDoc]
   );
 
   // M2 Defect 2: await the transport BEFORE flipping the UI to the terminal

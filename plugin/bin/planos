@@ -1541,6 +1541,70 @@ function buildPrdApiHandlers(doc, chain = []) {
     }
   };
 }
+function selectApproveDoc(agentDoc, nextRevision, prior, editedDocument) {
+  let chosen = agentDoc;
+  let source = "agent-authored";
+  if (editedDocument && typeof editedDocument === "object" && !Array.isArray(editedDocument)) {
+    let validated = null;
+    try {
+      const r = validateDocument(editedDocument);
+      validated = r && r.ok ? r.doc : null;
+    } catch {
+      validated = null;
+    }
+    if (validated && typeof validated.id === "string" && validated.id === agentDoc.id) {
+      chosen = {
+        ...validated,
+        meta: { ...validated.meta, revision: nextRevision }
+      };
+      source = "reviewer-edited";
+    }
+  }
+  if (prior && prior.doc) {
+    const priorCanon = canonicalize(prior.doc);
+    const chosenAtPriorRev = {
+      ...chosen,
+      meta: { ...chosen.meta, revision: prior.revision }
+    };
+    if (canonicalize(chosenAtPriorRev) === priorCanon) {
+      return { doc: prior.doc, persist: false, source, noop: true };
+    }
+  }
+  return { doc: chosen, persist: true, source, noop: false };
+}
+function buildPersistenceNote(picked, effectiveRevision, savedPath, persistError, staleBase = null) {
+  const lines = ["## Persisted document (work from THIS revision)"];
+  if (picked.noop) {
+    lines.push(
+      "",
+      `The reviewer made NO structural edits. No new revision was created; revision ${effectiveRevision} remains the current persisted document.`
+    );
+  } else if (persistError !== null) {
+    lines.push(
+      "",
+      `The approved document could NOT be persisted (revision ${effectiveRevision}): ${persistError}. Treat revision ${effectiveRevision} as the intended current document.`
+    );
+  } else {
+    const src = picked.source === "reviewer-edited" ? "the reviewer's edited document" : "the approved document";
+    lines.push(
+      "",
+      `Persisted ${src} as revision ${effectiveRevision}` + (savedPath !== null ? ` (${savedPath})` : "") + ". This is now the current canonical document — continue from it."
+    );
+    if (picked.source === "reviewer-edited") {
+      lines.push(
+        "",
+        "The reviewer made STRUCTURAL edits in the review UI; the document above already reflects them. The advisory notes/comments (if any) below are additional context, NOT a re-review gate."
+      );
+    }
+  }
+  if (staleBase && staleBase.stale) {
+    lines.push(
+      "",
+      `Note: the review was made against revision ${staleBase.baseRevision} while the chain head was ${staleBase.headRevision}. Per the single-reviewer blocking flow the approved document was still persisted off the current head (not rejected).`
+    );
+  }
+  return lines.join("\n");
+}
 async function handlePrd(options = {}) {
   const {
     decisionProvider,
@@ -1585,22 +1649,52 @@ async function handlePrd(options = {}) {
   if (decision.behavior === "deny") {
     output = toPermissionRequestOutput(decision);
   } else {
+    const picked = selectApproveDoc(
+      doc,
+      nextRevision,
+      prior,
+      resolved && typeof resolved === "object" ? resolved.editedDocument : void 0
+    );
     let savedPath = null;
     let persistError = null;
-    try {
-      savedPath = saveRevision(rootDir, doc);
-    } catch (err) {
-      persistError = err && err.message ? err.message : String(err);
+    if (picked.persist) {
+      try {
+        savedPath = saveRevision(rootDir, picked.doc);
+      } catch (err) {
+        persistError = err && err.message ? err.message : String(err);
+      }
     }
-    const approveDecision = typeof decision.message === "string" && decision.message.length > 0 ? { behavior: "allow", message: decision.message } : { behavior: "allow" };
+    const effectiveRevision = picked.doc.meta.revision;
+    const envBaseRevision = resolved && typeof resolved === "object" && typeof resolved.baseRevision === "number" ? resolved.baseRevision : null;
+    const priorRevision = prior && typeof prior.revision === "number" ? prior.revision : 0;
+    const staleBase = envBaseRevision !== null && envBaseRevision < priorRevision ? {
+      stale: true,
+      baseRevision: envBaseRevision,
+      headRevision: priorRevision
+    } : null;
+    const persistenceNote = buildPersistenceNote(
+      picked,
+      effectiveRevision,
+      savedPath,
+      persistError,
+      staleBase
+    );
+    const m2Summary = typeof decision.message === "string" && decision.message.length > 0 ? decision.message : null;
+    const reviewerChangedDoc = picked.source === "reviewer-edited";
+    const composed = m2Summary !== null ? `${persistenceNote}
+
+${m2Summary}` : reviewerChangedDoc || picked.noop || persistError !== null ? persistenceNote : null;
+    const approveDecision = composed !== null ? { behavior: "allow", message: composed } : { behavior: "allow" };
     output = {
       hookSpecificOutput: {
         hookEventName: "PrdRoundTrip",
         decision: approveDecision,
         prd: {
-          documentId: doc.id,
-          revision: doc.meta.revision,
+          documentId: picked.doc.id,
+          revision: effectiveRevision,
           persisted: savedPath !== null,
+          source: picked.source,
+          noop: picked.noop,
           ...savedPath !== null ? { path: savedPath } : {},
           ...persistError !== null ? { error: persistError } : {}
         }

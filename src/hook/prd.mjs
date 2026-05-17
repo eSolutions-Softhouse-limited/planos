@@ -51,7 +51,8 @@ import {
   buildSpaHtml,
   openBrowserReal,
 } from './prd-runtime.mjs';
-import { loadLatest, saveRevision } from '../prd/store.mjs';
+import { validateDocument } from '../schema/index.mjs';
+import { loadLatest, saveRevision, canonicalize } from '../prd/store.mjs';
 
 // ---------------------------------------------------------------------------
 // PRD persisted-chain read-only API (AC-P12) — full chain, not current+prev.
@@ -141,6 +142,178 @@ export function buildPrdApiHandlers(doc, chain = []) {
       return { json: { plan: match.doc } };
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// M3 — reviewer's edited working document becomes the persisted revision.
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick the document to persist on Approve (M3 — "edits actually stick").
+ *
+ * The SPA POSTs its full edited WORKING document on the FeedbackEnvelope as
+ * `editedDocument` (src/editor/envelope.impl.mjs). When present AND it
+ * validates as a Document AND it carries the SAME stable id as the
+ * agent-authored doc, the reviewer's edits BECOME the document: we persist
+ * THAT (normalised so its `meta.revision` matches the chain head + 1, exactly
+ * as the agent-authored path already normalises). Otherwise we fall back to
+ * the agent-authored `agentDoc` unchanged — an absent / malformed / id-
+ * mismatched editedDocument must NEVER block the round-trip (design.md §5:
+ * the user is never blocked by bad client input).
+ *
+ * NO-OP CORRECTNESS: if the chosen doc canonicalizes EQUAL (via the store's
+ * own byte-stable `canonicalize`) to the prior persisted revision's document,
+ * the reviewer made no structural change. The store is append-only with a
+ * monotonic revision number and has NO content-dedupe of its own (see
+ * tests/prd-store.test.mjs "byte-stable" + tests/prd-roundtrip.test.mjs
+ * "append-only invariant"): re-saving the SAME revision number throws, and
+ * bumping the number would persist a spuriously DIFFERING revision for an
+ * unchanged document. So the established no-op contract here is: persist
+ * nothing new and report the prior revision as current. A genuine edit (or a
+ * first revision with no prior) always persists.
+ *
+ * Pure: no network, no model, no clock. node:fs writes happen later in the
+ * caller (saveRevision) — this only DECIDES.
+ *
+ * @param {import('../schema/types').Document} agentDoc
+ *   The agent-authored doc, already normalised to meta.revision = nextRevision.
+ * @param {number} nextRevision  The chain-head + 1 (1 if no prior).
+ * @param {{ doc: object, revision: number } | null} prior
+ *   The prior persisted revision (loadLatest result), or null if none.
+ * @param {unknown} editedDocument  resolved.editedDocument from the envelope.
+ * @returns {{ doc: import('../schema/types').Document, persist: boolean,
+ *             source: 'reviewer-edited' | 'agent-authored',
+ *             noop: boolean }}
+ */
+export function selectApproveDoc(agentDoc, nextRevision, prior, editedDocument) {
+  let chosen = agentDoc;
+  let source = 'agent-authored';
+
+  if (
+    editedDocument &&
+    typeof editedDocument === 'object' &&
+    !Array.isArray(editedDocument)
+  ) {
+    let validated = null;
+    try {
+      const r = validateDocument(editedDocument);
+      validated = r && r.ok ? r.doc : null;
+    } catch {
+      validated = null;
+    }
+    // Only honour an edited doc that is a valid Document AND targets the SAME
+    // stable id (a different id is not "this document's next revision").
+    if (
+      validated &&
+      typeof validated.id === 'string' &&
+      validated.id === agentDoc.id
+    ) {
+      // Normalise the revision the SAME way the agent-authored path does — the
+      // persisted chain is the source of truth for monotonicity, not whatever
+      // baseRevision the SPA edited against (single-reviewer blocking flow:
+      // approve-with-edits always persists off the current chain head; a stale
+      // base is noted in the message, never an error — see handlePrd).
+      chosen = {
+        ...validated,
+        meta: { ...validated.meta, revision: nextRevision },
+      };
+      source = 'reviewer-edited';
+    }
+  }
+
+  // NO-OP: canonically equal to the prior persisted revision → persist nothing
+  // (the store has no content-dedupe; bumping the number would create a
+  // spuriously differing revision for an unchanged doc).
+  if (prior && prior.doc) {
+    const priorCanon = canonicalize(prior.doc);
+    // Compare at the prior revision's own number so a pure revision-bump does
+    // not register as a "change" (content equality, not meta equality).
+    const chosenAtPriorRev = {
+      ...chosen,
+      meta: { ...chosen.meta, revision: prior.revision },
+    };
+    if (canonicalize(chosenAtPriorRev) === priorCanon) {
+      return { doc: prior.doc, persist: false, source, noop: true };
+    }
+  }
+
+  return { doc: chosen, persist: true, source, noop: false };
+}
+
+/**
+ * Build the human-readable persistence note that rides on the Approve
+ * `decision.message` (M3). It NAMES the revision the reviewer's approved
+ * document was persisted as (stable id + revision number + on-disk path) so
+ * the agent continues from the document that actually stuck — and flags the
+ * no-op / persist-failure / stale-base cases plainly.
+ *
+ * baseRevision / optimistic concurrency on approve (M3 requirement 4): the
+ * single-reviewer blocking flow ALWAYS persists approve-with-edits off the
+ * current chain head (prior + 1). A stale base (the SPA edited an older
+ * revision than the current canonical one) does NOT block — it is persisted
+ * anyway and merely NOTED here, consistent with the store's append-only chain
+ * semantics (the deny path keeps its stricter race guard — unchanged).
+ *
+ * Pure: string build only. No fs, no network, no model, no clock.
+ *
+ * @param {{ source: string, persist: boolean, noop: boolean }} picked
+ * @param {number} effectiveRevision
+ * @param {string|null} savedPath
+ * @param {string|null} persistError
+ * @param {{ stale: boolean, baseRevision: number, headRevision: number } | null} [staleBase]
+ * @returns {string}
+ */
+export function buildPersistenceNote(
+  picked,
+  effectiveRevision,
+  savedPath,
+  persistError,
+  staleBase = null,
+) {
+  const lines = ['## Persisted document (work from THIS revision)'];
+  if (picked.noop) {
+    lines.push(
+      '',
+      `The reviewer made NO structural edits. No new revision was created; ` +
+        `revision ${effectiveRevision} remains the current persisted document.`,
+    );
+  } else if (persistError !== null) {
+    lines.push(
+      '',
+      `The approved document could NOT be persisted (revision ` +
+        `${effectiveRevision}): ${persistError}. Treat revision ` +
+        `${effectiveRevision} as the intended current document.`,
+    );
+  } else {
+    const src =
+      picked.source === 'reviewer-edited'
+        ? "the reviewer's edited document"
+        : 'the approved document';
+    lines.push(
+      '',
+      `Persisted ${src} as revision ${effectiveRevision}` +
+        (savedPath !== null ? ` (${savedPath})` : '') +
+        '. This is now the current canonical document — continue from it.',
+    );
+    if (picked.source === 'reviewer-edited') {
+      lines.push(
+        '',
+        'The reviewer made STRUCTURAL edits in the review UI; the document ' +
+          'above already reflects them. The advisory notes/comments (if any) ' +
+          'below are additional context, NOT a re-review gate.',
+      );
+    }
+  }
+  if (staleBase && staleBase.stale) {
+    lines.push(
+      '',
+      `Note: the review was made against revision ${staleBase.baseRevision} ` +
+        `while the chain head was ${staleBase.headRevision}. Per the ` +
+        `single-reviewer blocking flow the approved document was still ` +
+        `persisted off the current head (not rejected).`,
+    );
+  }
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -293,33 +466,102 @@ export async function handlePrd(options = {}) {
   if (decision.behavior === 'deny') {
     output = toPermissionRequestOutput(decision);
   } else {
+    // M3: the reviewer's edited working document (transmitted on the approve
+    // envelope as resolved.editedDocument) BECOMES the document. Pick it when
+    // valid + same id; else fall back to the agent-authored doc. No structural
+    // change vs the prior revision → persist nothing (no-op correctness).
+    const picked = selectApproveDoc(
+      doc,
+      nextRevision,
+      prior,
+      resolved && typeof resolved === 'object'
+        ? resolved.editedDocument
+        : undefined,
+    );
+
     let savedPath = null;
     let persistError = null;
-    try {
-      savedPath = saveRevision(rootDir, doc);
-    } catch (err) {
-      // An append-only / path violation must NOT crash the round-trip — the
-      // decision still resolves; surface the error in the success payload so
-      // the agent/tests can see it (the user is never blocked).
-      persistError = err && err.message ? err.message : String(err);
+    if (picked.persist) {
+      try {
+        savedPath = saveRevision(rootDir, picked.doc);
+      } catch (err) {
+        // An append-only / path violation must NOT crash the round-trip — the
+        // decision still resolves; surface the error in the success payload so
+        // the agent/tests can see it (the user is never blocked).
+        persistError = err && err.message ? err.message : String(err);
+      }
     }
+
+    // The effective current revision the agent should treat as canonical:
+    // the just-persisted one, or — on a no-op / persist failure — the prior.
+    const effectiveRevision = picked.doc.meta.revision;
+
     // M2 Defect 1: when the reviewer approved BUT also left feedback,
     // buildDecision returns the allow with a rendered `message` (approve
-    // directive + ops + echo table). Carry it on the decision so the
-    // approved-with-notes feedback actually reaches the agent instead of
-    // being silently discarded. A clean approve has no message → bare allow.
-    const approveDecision =
+    // directive + ops + echo table). M3: ADDITIONALLY state the persisted
+    // revision (id + number + path) and keep the M2 change summary so the
+    // agent works from the document that actually stuck. A clean approve with
+    // no edits + no notes stays a bare allow (no noise).
+    // Optimistic-concurrency note (M3 req 4): if the SPA edited an older
+    // revision than the chain head, persist anyway (single-reviewer blocking
+    // flow) and NOTE it. headRevision = the revision the agent-authored doc was
+    // normalised to (prior + 1); a base strictly below the prior persisted
+    // revision is stale.
+    const envBaseRevision =
+      resolved &&
+      typeof resolved === 'object' &&
+      typeof resolved.baseRevision === 'number'
+        ? resolved.baseRevision
+        : null;
+    const priorRevision =
+      prior && typeof prior.revision === 'number' ? prior.revision : 0;
+    const staleBase =
+      envBaseRevision !== null && envBaseRevision < priorRevision
+        ? {
+            stale: true,
+            baseRevision: envBaseRevision,
+            headRevision: priorRevision,
+          }
+        : null;
+
+    const persistenceNote = buildPersistenceNote(
+      picked,
+      effectiveRevision,
+      savedPath,
+      persistError,
+      staleBase,
+    );
+    const m2Summary =
       typeof decision.message === 'string' && decision.message.length > 0
-        ? { behavior: 'allow', message: decision.message }
+        ? decision.message
+        : null;
+    // A clean approve — agent-authored doc, NO reviewer structural edits, NO
+    // M2 feedback — stays a BARE allow (no noise; the agent already has the
+    // doc it authored, nothing changed). The persistence note is attached
+    // ONLY when there is something the agent must act on: M2 feedback, OR the
+    // reviewer's structural edits became the document, OR a no-op/persist
+    // failure the agent must be told about explicitly.
+    const reviewerChangedDoc = picked.source === 'reviewer-edited';
+    const composed =
+      m2Summary !== null
+        ? `${persistenceNote}\n\n${m2Summary}`
+        : reviewerChangedDoc || picked.noop || persistError !== null
+          ? persistenceNote
+          : null;
+    const approveDecision =
+      composed !== null
+        ? { behavior: 'allow', message: composed }
         : { behavior: 'allow' };
     output = {
       hookSpecificOutput: {
         hookEventName: 'PrdRoundTrip',
         decision: approveDecision,
         prd: {
-          documentId: doc.id,
-          revision: doc.meta.revision,
+          documentId: picked.doc.id,
+          revision: effectiveRevision,
           persisted: savedPath !== null,
+          source: picked.source,
+          noop: picked.noop,
           ...(savedPath !== null ? { path: savedPath } : {}),
           ...(persistError !== null ? { error: persistError } : {}),
         },
