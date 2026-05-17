@@ -56,17 +56,10 @@ function run(bin, args, input) {
   });
 }
 
-test('AC-DIST-2 bundled bin/planos runs `enter` with NO src/ present (defect fixed)', () => {
-  withPluginOnly((bin) => {
-    const out = run(bin, ['enter'], '{}');
-    const json = JSON.parse(out);
-    assert.equal(
-      json.hookSpecificOutput.hookEventName,
-      'PreToolUse',
-      'enter must emit the PreToolUse hook JSON from the self-contained bundle',
-    );
-  });
-});
+// The `enter` no-src smoke was removed in M1 (ADR-0007): the `enter`/`exit`/
+// `review` subcommands were deleted (planos is PRD-only). The `export`
+// no-src smoke below + the usage-error smoke prove the bundle is genuinely
+// self-contained without the removed subcommands.
 
 test('AC-DIST-2 bundled bin/planos runs `export` with NO src/ present', () => {
   withPluginOnly((bin) => {

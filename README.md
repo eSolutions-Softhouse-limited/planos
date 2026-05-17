@@ -1,9 +1,9 @@
 # planos
 
-> **planos** is a Claude Code plugin that makes the agent author **plans, PRDs, and
-> diff reviews** as a **structured block document**, rendered as a rich, editable
-> browser UI — the common ground between LLM-native serialization and human-native
-> review. Markdown is an *export format*, not the source of truth.
+> **planos** is a Claude Code plugin that makes the agent author a **PRD** as a
+> **structured block document**, rendered as a rich, editable browser UI — the
+> common ground between LLM-native serialization and human-native review.
+> Markdown is an *export format*, not the source of truth.
 
 planos is **fully offline**, has **zero runtime dependencies**, and ships as a
 **single committed `plugin/dist/index.html`** SPA. The blocking review round-trip
@@ -48,20 +48,29 @@ development-only concern; see [Building the editor](#building-the-editor-dev-onl
 
 ---
 
-## The three entry modes
+## The PRD flow
 
-planos has **three entry modes, one engine**. All three share the block schema,
-the SPA editor, the local-server round-trip, structured feedback, and structural
-diff — only the *source* of the initial document and the *block subset* differ.
+planos is a **single flow — PRD** (ADR-0007). The earlier plan-mode and
+diff-review flows were removed.
 
 | Mode | Trigger | How it works |
 |---|---|---|
-| **Plan** | Native plan mode | The flagship loop. The `ExitPlanMode` hook fires automatically; the agent's structured plan opens in the editor; your structured feedback is fed back and the agent revises until approved. |
-| **PRD** | `/planos-prd [topic]` slash command | Not plan-mode. Richer block vocabulary; persists revision history to a `prds/`-style directory. |
-| **Diff review** | `/planos-review [PR# \| git range]` | `gh`/`git` fetch (pre-server, outside the blocking path) → `diff` blocks; comment / accept / reject per hunk. |
+| **PRD** | `/planos-prd [topic]` slash command | The `/planos-prd` command runs a brief interview, authors a v2 structured-block PRD, and pipes it to `planos prd` over stdin. The blocking CLI boots the local-server round-trip; the PRD opens in the rich editor; your structured feedback is fed back and the agent revises until approved. Each approval persists an immutable revision to a `prds/`-style directory. No hooks involved — invoked via CLI only. |
 
-A `/planos-plan` slash command is also available to start the optional Socratic
-interview that authors the initial plan document before plan mode.
+### Rich interactive editor
+
+The SPA editor provides a fully interactive review experience:
+
+- **Per-kind edit modals** — structured field editing for all 13 block kinds (section, prose, objective, task, decision, risk, openQuestion, phase, tradeoff, fileChange, code, table, diagram).
+- **TipTap / ProseMirror WYSIWYG prose editor** — rich text editing for `prose` blocks (bold, italic, lists, headings) — bundled offline, no CDN.
+- **Editable table grid** — inline cell editing for `table` blocks.
+- **Mermaid diagram editor** — edit and live-preview `diagram` blocks.
+- **Add / delete blocks** — insert new blocks at any position or remove existing ones; IDs are stable and never renumbered.
+- **Drag-and-drop block reorder** — native HTML5 drag-drop with full keyboard accessibility (arrow keys + Space/Enter).
+- **Advisory feedback on Approve** — reviewer comments and global notes are forwarded to the agent as advisory context even on Approve (M2 semantics); they never block the approval itself.
+- **Edited-revision persistence** — on Approve, the working document (with all reviewer edits applied) is persisted as the next immutable revision, not just the raw agent output (M3 semantics).
+
+Reviewer edits are folded into a working document by `deriveWorkingDoc(baseDoc, {edits, answers, deletes, adds, order})` — see [§4 of `docs/design.md`](docs/design.md) for the compose contract.
 
 ### Markdown export
 
@@ -90,13 +99,14 @@ The SPA editor ships with selectable color themes (SPA-side only — never on an
 planos is built around a small set of hard, tested guarantees:
 
 - **AC-17 — no model / network / spawn in the blocking path.** The blocking
-  review round-trip (`bin/planos exit|prd|review` → `src/hook/*` → `src/server/`
-  → `src/schema/` → `src/diff/`) contains **no model call, no network egress,
-  and no agent spawn**. The agent authors block IDs; the path that turns agent
-  output into the canonical artifact and serializes the decision is
-  model-free. Enforced by `tests/ac17-invariant.test.mjs` and the import-graph
-  harness. See [`docs/notes/ac17-invariant.md`](docs/notes/ac17-invariant.md)
-  and [`docs/adr/0003-diff-review.md`](docs/adr/0003-diff-review.md).
+  PRD round-trip (`bin/planos prd` → `src/hook/prd.mjs` →
+  `src/hook/prd-runtime.mjs` → `src/server/` → `src/schema/` → `src/diff/` →
+  `src/prd/store.mjs`) contains **no model call, no network egress, and no
+  agent spawn**. The agent authors block IDs; the path that turns agent output
+  into the canonical artifact and serializes the decision is model-free.
+  Enforced by `tests/ac17-invariant.test.mjs` and the import-graph harness. See
+  [`docs/notes/ac17-invariant.md`](docs/notes/ac17-invariant.md) and
+  [`docs/adr/0007-consolidate-prd-only.md`](docs/adr/0007-consolidate-prd-only.md).
 - **Fully offline.** The full loop works with no external network. The SPA is a
   single self-contained HTML blob (bundled renderer, no CDN).
 - **Zero runtime dependencies.** `package.json` declares **no** runtime

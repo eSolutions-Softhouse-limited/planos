@@ -31,13 +31,8 @@ function bindFreePort(server) {
 
     function tryBind() {
       attempts += 1;
-      // Port 0 → OS picks a free ephemeral port
-      server.listen(0, '127.0.0.1', () => {
-        const { port } = server.address();
-        resolve(port);
-      });
 
-      server.once('error', (err) => {
+      const onError = (err) => {
         if (err.code === 'EADDRINUSE' && attempts < MAX_PORT_RETRIES) {
           // Remove the error listener added by the previous attempt before retrying
           server.removeAllListeners('error');
@@ -45,7 +40,19 @@ function bindFreePort(server) {
         } else {
           reject(err);
         }
+      };
+
+      // Port 0 → OS picks a free ephemeral port
+      server.listen(0, '127.0.0.1', () => {
+        // LOW-a: the bind succeeded — drop the per-attempt error listener so it
+        // does not leak for the server's whole lifetime (only the EADDRINUSE
+        // retry path used to remove it; the success path never did).
+        server.removeListener('error', onError);
+        const { port } = server.address();
+        resolve(port);
       });
+
+      server.once('error', onError);
     }
 
     tryBind();
@@ -64,6 +71,40 @@ function readBody(req) {
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
+  });
+}
+
+/**
+ * Send a response and resolve only after the OS has accepted the entire body
+ * AND the socket has been flushed (the `res.end` callback + `finish` event).
+ *
+ * M2 Defect 2: the decision promise must NOT resolve (→ finish() → flush
+ * stdout → process.exit(0)) until the browser's POST has been fully read AND
+ * our `{ ok: true }` 200 has been written back. Previously `resolveDecision`
+ * ran immediately after `res.end()` was *called* (not flushed), so a fast
+ * `finish()`/`process.exit(0)` could race the socket flush — the browser saw a
+ * dropped connection while the UI had already flipped to "captured". Awaiting
+ * the `finish` event closes that window.
+ *
+ * @param {import('node:http').ServerResponse} res
+ * @param {number} status
+ * @param {Record<string, string>} headers
+ * @param {string} body
+ * @returns {Promise<void>}
+ */
+function sendAndFlush(res, status, headers, body) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    res.writeHead(status, headers);
+    // `finish` fires once the last chunk has been handed to the OS for the
+    // underlying socket; the end() callback is belt-and-suspenders.
+    res.once('finish', done);
+    res.end(body, done);
   });
 }
 
@@ -148,11 +189,19 @@ export async function startServer({
     // --- POST /api/approve ---
     if (method === 'POST' && url === '/api/approve') {
       try {
+        // M2 Defect 2: fully read the body, THEN write+flush the 200, THEN
+        // resolve the decision. resolveDecision triggers finish() → flush
+        // stdout → process.exit(0); doing it only after the response socket
+        // has flushed guarantees the browser's POST is never raced by exit.
         const body = await readBody(req);
         const payload = body ? JSON.parse(body) : {};
         const decision = { behavior: 'allow', ...payload };
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        await sendAndFlush(
+          res,
+          200,
+          { 'Content-Type': 'application/json' },
+          JSON.stringify({ ok: true }),
+        );
         resolveDecision(decision);
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -164,11 +213,16 @@ export async function startServer({
     // --- POST /api/deny ---
     if (method === 'POST' && url === '/api/deny') {
       try {
+        // M2 Defect 2: read body → flush 200 → resolve (see /api/approve).
         const body = await readBody(req);
         const payload = body ? JSON.parse(body) : {};
         const decision = { behavior: 'deny', ...payload };
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        await sendAndFlush(
+          res,
+          200,
+          { 'Content-Type': 'application/json' },
+          JSON.stringify({ ok: true }),
+        );
         resolveDecision(decision);
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });

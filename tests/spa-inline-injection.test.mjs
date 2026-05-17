@@ -33,7 +33,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildSpaHtml, buildDegradedHtml } from '../src/hook/exit.mjs';
+import { buildSpaHtml, buildDegradedHtml } from '../src/hook/prd-runtime.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = join(__dirname, '..', 'plugin', 'dist', 'index.html');

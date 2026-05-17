@@ -8,42 +8,32 @@
 // which escaped the package boundary — `src/` is never packaged, so an
 // installed copy could not import any handler. Bundling fixes that.
 //
+// M1 (ADR-0007): planos is a SINGLE flow — PRD. The `enter`, `exit` and
+// `review` subcommands (ExitPlanMode/EnterPlanMode roundtrip + diff-review)
+// were removed. Only `prd` (the blocking PRD round-trip) and `export` (the
+// out-of-blocking-path markdown export) remain.
+//
 // AC-17: this entry + its static closure are audited by the import-graph
 // walk over the SOURCE roots (tests/harness/import-graph.mjs ac17Roots());
 // the committed `plugin/bin/planos` is proven byte-identical to a fresh
 // build of exactly these sources by tests/bin-bundle.test.mjs (the
 // AC-P17-style drift gate). Zero runtime deps; node: builtins only.
 
-import { handleEnter } from '../hook/enter.mjs';
-import { handleExit } from '../hook/exit.mjs';
 import { handlePrd } from '../hook/prd.mjs';
-import { handleReview } from '../hook/review.mjs';
 import { handleExport } from '../hook/export.mjs';
 
 const subcommand = process.argv[2];
 
 if (!subcommand) {
   process.stderr.write(
-    'Usage: planos <subcommand>\nSubcommands: enter, exit, prd, review, export\n',
+    'Usage: planos <subcommand>\nSubcommands: prd, export\n',
   );
   process.exit(1);
 }
 
 switch (subcommand) {
-  case 'enter': {
-    await handleEnter();
-    break;
-  }
-  case 'exit': {
-    await handleExit();
-    break;
-  }
   case 'prd': {
     await handlePrd();
-    break;
-  }
-  case 'review': {
-    await handleReview();
     break;
   }
   case 'export': {

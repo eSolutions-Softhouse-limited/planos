@@ -22,7 +22,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -31,7 +31,9 @@ import {
   loadLatest,
   loadRevision,
   listRevisions,
+  listRevisionDocs,
   saveRevision,
+  PrdCorruptError,
 } from "../src/prd/store.mjs";
 
 import { diffDocuments, DIFF_STATUS } from "../src/diff/structural.mjs";
@@ -527,6 +529,147 @@ test("AC-P10: fieldDiffs on the modified block cover the changed prose.md field"
     const types = mdDiff.runs.map((r) => r.type);
     assert.ok(types.includes("removed"), "word diff has 'removed' runs");
     assert.ok(types.includes("added"), "word diff has 'added' runs");
+  } finally {
+    cleanTempRoot(root);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// [1] REGRESSION — MISSING vs CORRUPT are no longer conflated.
+//
+// The store used to map BOTH "file absent" and "file exists but unparseable"
+// to null. That silently degraded a corrupt head to "no prior revision",
+// resetting the revision counter and later throwing the confusing
+// "r001 already exists" append-only error. ENOENT must still be the quiet
+// null/[] sentinel (so first-revision creation is unaffected); a file that
+// EXISTS but is corrupt must become a DISTINCT, loud, typed signal.
+// ---------------------------------------------------------------------------
+
+test("[1] loadLatest: MISSING head still returns null (fresh doc unaffected)", () => {
+  const root = makeTempRoot();
+  try {
+    // ENOENT path: never written. Must stay the quiet null sentinel so a
+    // brand-new doc id still loads as null (nextRevision starts at 1).
+    assert.equal(loadLatest(root, "brand-new-doc"), null);
+  } finally {
+    cleanTempRoot(root);
+  }
+});
+
+test("[1] loadLatest: CORRUPT head throws PrdCorruptError (NOT null)", () => {
+  const root = makeTempRoot();
+  try {
+    saveRevision(root, DOC_R1); // creates latest.json
+    const latestPath = join(prdPath(root, DOC_R1.id), "latest.json");
+    writeFileSync(latestPath, "{ not valid json at all", "utf8");
+    let thrown = null;
+    try {
+      loadLatest(root, DOC_R1.id);
+    } catch (err) {
+      thrown = err;
+    }
+    assert.ok(
+      thrown instanceof PrdCorruptError,
+      `expected PrdCorruptError, got ${thrown && thrown.name}`,
+    );
+    assert.ok(
+      thrown.filePath.includes("latest.json"),
+      "typed error names the corrupt file",
+    );
+  } finally {
+    cleanTempRoot(root);
+  }
+});
+
+test("[1] loadRevision: MISSING → null; CORRUPT → PrdCorruptError", () => {
+  const root = makeTempRoot();
+  try {
+    // Missing revision file → still null (quiet, unchanged).
+    assert.equal(loadRevision(root, "no-such-doc", 1), null);
+
+    saveRevision(root, DOC_R1);
+    const r001 = join(prdPath(root, DOC_R1.id), "r001.json");
+    writeFileSync(r001, "totally broken {", "utf8");
+    assert.throws(
+      () => loadRevision(root, DOC_R1.id, 1),
+      (e) => e instanceof PrdCorruptError,
+      "a corrupt requested revision is loud, not silently missing",
+    );
+  } finally {
+    cleanTempRoot(root);
+  }
+});
+
+test("[1] listRevisions: a corrupt rNNN.json keeps its filename revision number (chain not silently shortened) + never throws", () => {
+  const root = makeTempRoot();
+  try {
+    saveRevision(root, DOC_R1); // r001
+    saveRevision(root, DOC_R2); // r002
+    // Corrupt the HEAD revision body.
+    const r002 = join(prdPath(root, DOC_R2.id), "r002.json");
+    writeFileSync(r002, "{{{ corrupt", "utf8");
+
+    const revs = listRevisions(root, DOC_R1.id); // must NOT throw
+    const byRev = new Map(revs.map((r) => [r.revision, r]));
+    assert.ok(byRev.has(2), "corrupt r002 still enumerated by filename revision");
+    assert.equal(byRev.get(2).corrupt, true, "r002 flagged corrupt");
+    assert.equal(byRev.get(1).corrupt, false, "intact r001 not flagged");
+    // The on-disk max revision is still discoverable — this is what stops the
+    // caller mis-resetting the counter to 1.
+    assert.equal(
+      Math.max(...revs.map((r) => r.revision)),
+      2,
+      "max on-disk revision still 2 despite head corruption",
+    );
+  } finally {
+    cleanTempRoot(root);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// [2] REGRESSION — listRevisionDocs returns the parsed doc for every revision
+// in ONE pass (the de-dupe consumed by assemblePriorChain). Identical chain
+// membership + order to listRevisions; corrupt files reported, not throwing.
+// ---------------------------------------------------------------------------
+
+test("[2] listRevisionDocs: one-pass parsed chain, newest-first, same membership as listRevisions", () => {
+  const root = makeTempRoot();
+  try {
+    saveRevision(root, DOC_R1);
+    saveRevision(root, DOC_R2);
+
+    const docs = listRevisionDocs(root, DOC_R1.id);
+    assert.equal(docs.length, 2, "both revisions returned");
+    // Same newest-first ordering as listRevisions.
+    assert.deepEqual(
+      docs.map((d) => d.revision),
+      listRevisions(root, DOC_R1.id).map((r) => r.revision),
+      "listRevisionDocs order matches listRevisions",
+    );
+    assert.equal(docs[0].revision, 2, "newest first");
+    // The parsed doc is returned inline (no second loadRevision needed).
+    assert.equal(docs[0].doc.meta.revision, 2);
+    assert.equal(docs[0].doc.id, DOC_R2.id);
+    assert.equal(docs[1].doc.meta.revision, 1);
+  } finally {
+    cleanTempRoot(root);
+  }
+});
+
+test("[2] listRevisionDocs: a corrupt revision yields doc:null + corrupt:true (degrades, never throws)", () => {
+  const root = makeTempRoot();
+  try {
+    saveRevision(root, DOC_R1);
+    saveRevision(root, DOC_R2);
+    const r001 = join(prdPath(root, DOC_R1.id), "r001.json");
+    writeFileSync(r001, "broken json {{", "utf8");
+
+    const docs = listRevisionDocs(root, DOC_R1.id); // must NOT throw
+    const byRev = new Map(docs.map((d) => [d.revision, d]));
+    assert.equal(byRev.get(1).doc, null, "corrupt r001 → doc null");
+    assert.equal(byRev.get(1).corrupt, true, "corrupt r001 flagged");
+    assert.ok(byRev.get(2).doc, "intact r002 still parsed");
+    assert.equal(byRev.get(2).corrupt, false);
   } finally {
     cleanTempRoot(root);
   }

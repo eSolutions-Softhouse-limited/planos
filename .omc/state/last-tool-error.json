@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cat node_modules/tiptap-markdown/index.d.ts 2>/dev/null; echo \\\"---types dir---\\\"; ls node_modules/tiptap-markdown/types 2>/dev/null && cat node_modules/tiptap-markdown/types/Markdown.d.ts...",
+  "error": "Exit code 1\n\n\nimport { Editor, Extension } from \"@tiptap/core\";\nimport { MarkdownSerializer, MarkdownSerializerState } from \"prosemirror-markdown\";\nimport * as Prosemirror from \"prosemirror-model\";\nimport * as MarkdownIt from \"markdown-it\";\n\nexport interface MarkdownOptions  {\n    html?: Boolean,\n    tightLists?: Boolean,\n    tightListClass?: String,\n    bulletListMarker?: String,\n    linkify?: Boolean,\n    breaks?: Boolean,\n    transformPastedText?: Boolean,\n    transformCopiedText?: Boolean,\n}...",
+  "timestamp": "2026-05-17T10:48:10.113Z",
+  "retry_count": 4
+}

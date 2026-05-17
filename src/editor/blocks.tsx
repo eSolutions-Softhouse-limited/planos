@@ -16,9 +16,7 @@ import {
   type CodeBlock,
   type DecisionBlock,
   type DiagramBlock,
-  type DiffBlock,
   type FileChangeBlock,
-  type HunkReview,
   type ObjectiveBlock,
   type OpenQuestionBlock,
   type PhaseBlock,
@@ -874,296 +872,22 @@ function DiagramView({ block }: { block: DiagramBlock }) {
 }
 
 // ---------------------------------------------------------------------------
-// v3 (diff-review-scoped) renderer — Milestone R4. Plain React + inline
-// styles, ZERO new deps, ZERO syntax-highlight lib (exactly like CodeView).
-// Per-hunk accept/reject/comment is hunk-level only (R5); it flows up via
-// `onHunkReview` and is serialized into an `editBlock` patch of `comments[]`
-// (NO new envelope op). The block-level comment affordance stays in BlockShell.
-// ---------------------------------------------------------------------------
-
-const diffStatusColors = (
-  t: ThemeTokens
-): Record<NonNullable<DiffBlock['status']>, { bg: string; fg: string }> => ({
-  added: { bg: t.statusDoneBg, fg: t.statusDoneFg },
-  modified: { bg: t.statusDoingBg, fg: t.statusDoingFg },
-  deleted: { bg: t.statusCutBg, fg: t.statusCutFg },
-  renamed: { bg: t.statusRenamedBg, fg: t.statusRenamedFg },
-  binary: { bg: t.statusTodoBg, fg: t.statusTodoFg },
-});
-
-const diffLineStyle = (
-  t: ThemeTokens
-): Record<' ' | '+' | '-', { bg: string; fg: string }> => ({
-  ' ': { bg: 'transparent', fg: t.diffContextFg },
-  '+': { bg: t.diffAddBg, fg: t.diffAddFg },
-  '-': { bg: t.diffRemoveBg, fg: t.diffRemoveFg },
-});
-
-const HUNK_VERDICTS: HunkReview['verdict'][] = [
-  'accept',
-  'reject',
-  'comment',
-];
-
-const hunkVerdictColors = (
-  t: ThemeTokens
-): Record<
-  HunkReview['verdict'],
-  { bg: string; fg: string; border: string }
-> => ({
-  accept: { bg: t.statusDoneBg, fg: t.statusDoneFg, border: t.okBorder },
-  reject: { bg: t.statusCutBg, fg: t.statusCutFg, border: t.badBorder },
-  comment: {
-    bg: t.statusDoingBg,
-    fg: t.statusDoingFg,
-    border: t.infoBorder,
-  },
-});
-
-interface DiffViewProps {
-  block: DiffBlock;
-  /** hunkId → current per-hunk review (verdict + optional comment text). */
-  review: Record<string, HunkReview>;
-  onHunkReview: (hunkId: string, next: HunkReview) => void;
-}
-
-/**
- * `diff`: a file-path header (status badge + mono path, `oldPath → path` on
- * rename), then a per-hunk unified-diff body styled by `DiffLine.op` in a
- * monospace <pre> exactly like `CodeView`. Each hunk carries a hunk-level
- * accept/reject/comment toggle + comment box (R5). Empty `hunks[]`
- * (binary / rename stub, R6) renders a descriptive affordance, never crashes.
- */
-function DiffView({ block, review, onHunkReview }: DiffViewProps) {
-  const theme = useTheme();
-  const status = block.status;
-  const badge = status ? diffStatusColors(theme)[status] : null;
-  const hunks = Array.isArray(block.hunks) ? block.hunks : [];
-
-  // Seed the per-hunk review from any pre-existing BlockComment in the doc
-  // (hunkId-anchored), so a re-opened diff-review keeps prior verdicts.
-  const seeded: Record<string, HunkReview> = {};
-  for (const c of Array.isArray(block.comments) ? block.comments : []) {
-    if (c && typeof c.hunkId === 'string' && c.hunkId.length > 0) {
-      seeded[c.hunkId] = {
-        verdict: c.verdict,
-        text: typeof c.text === 'string' ? c.text : '',
-      };
-    }
-  }
-  const reviewFor = (hunkId: string): HunkReview =>
-    review[hunkId] ??
-    seeded[hunkId] ?? { verdict: 'comment', text: '' };
-
-  return (
-    <div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexWrap: 'wrap',
-          marginBottom: 10,
-        }}
-      >
-        {status && (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-              padding: '2px 8px',
-              borderRadius: 4,
-              background: (badge ?? { bg: theme.statusTodoBg }).bg,
-              color: (badge ?? { fg: theme.statusTodoFg }).fg,
-            }}
-          >
-            {status}
-          </span>
-        )}
-        <code
-          style={{
-            fontFamily:
-              'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-            fontSize: 13,
-            color: theme.text,
-          }}
-        >
-          {status === 'renamed' && block.oldPath
-            ? `${block.oldPath} → ${block.path}`
-            : block.path}
-        </code>
-      </div>
-
-      {hunks.length === 0 ? (
-        <div
-          style={{
-            fontSize: 13,
-            color: theme.textMuted,
-            fontStyle: 'italic',
-            padding: '8px 10px',
-            background: theme.surfaceMuted,
-            border: `1px solid ${theme.border}`,
-            borderRadius: 6,
-          }}
-        >
-          {status === 'binary'
-            ? 'binary file — no textual diff'
-            : status === 'renamed'
-              ? `renamed ${block.oldPath ?? '(unknown)'} → ${block.path}`
-              : 'no textual diff'}
-        </div>
-      ) : (
-        hunks.map((hunk) => {
-          const r = reviewFor(hunk.hunkId);
-          const dls = diffLineStyle(theme);
-          return (
-            <div
-              key={hunk.hunkId}
-              data-hunk-id={hunk.hunkId}
-              style={{
-                border: `1px solid ${theme.border}`,
-                borderRadius: 6,
-                overflow: 'hidden',
-                marginBottom: 12,
-              }}
-            >
-              <div
-                style={{
-                  padding: '6px 10px',
-                  background: theme.codeInlineBg,
-                  borderBottom: `1px solid ${theme.border}`,
-                  fontSize: 12,
-                  fontFamily:
-                    'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                  color: theme.textDetail,
-                }}
-              >
-                {hunk.header}
-              </div>
-              <pre
-                style={{
-                  margin: 0,
-                  padding: '8px 0',
-                  background: theme.codeBg,
-                  fontSize: 12.5,
-                  lineHeight: 1.5,
-                  overflowX: 'auto',
-                  whiteSpace: 'pre',
-                  fontFamily:
-                    'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                }}
-              >
-                {(Array.isArray(hunk.lines) ? hunk.lines : []).map(
-                  (line, i) => {
-                    const ls = dls[line.op] ?? dls[' '];
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          background: ls.bg,
-                          color: ls.fg,
-                          padding: '0 12px',
-                        }}
-                      >
-                        {line.op}
-                        {line.text}
-                      </div>
-                    );
-                  }
-                )}
-              </pre>
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 10px',
-                  borderTop: `1px solid ${theme.border}`,
-                  background: theme.surface,
-                }}
-              >
-                {HUNK_VERDICTS.map((v) => {
-                  const active = r.verdict === v;
-                  const c = hunkVerdictColors(theme)[v];
-                  return (
-                    <button
-                      key={v}
-                      type="button"
-                      aria-label={`${v} hunk ${hunk.hunkId}`}
-                      aria-pressed={active}
-                      onClick={() =>
-                        onHunkReview(hunk.hunkId, { ...r, verdict: v })
-                      }
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        textTransform: 'capitalize',
-                        padding: '3px 10px',
-                        borderRadius: 99,
-                        cursor: 'pointer',
-                        background: active ? c.bg : theme.surfaceMuted,
-                        color: active ? c.fg : theme.textFaint,
-                        border: `1px solid ${
-                          active ? c.border : theme.border
-                        }`,
-                      }}
-                    >
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <textarea
-                aria-label={`Comment on hunk ${hunk.hunkId}`}
-                value={r.text}
-                onChange={(e) =>
-                  onHunkReview(hunk.hunkId, { ...r, text: e.target.value })
-                }
-                placeholder="Per-hunk comment for the agent…"
-                rows={2}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '8px 10px',
-                  border: 'none',
-                  borderTop: `1px solid ${theme.border}`,
-                  fontSize: 13,
-                  fontFamily: 'inherit',
-                  resize: 'vertical',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Dispatcher.
 // ---------------------------------------------------------------------------
 
 export interface BlockRendererProps {
   block: Block;
   comment: string;
-  taskPatch: Partial<TaskBlock>;
+  /**
+   * M4: the accumulated patch for this block (ANY kind's fields — the
+   * inline task affordance only writes task fields; richer per-kind edits
+   * flow through the M4 edit modal in App). Widened from Partial<TaskBlock>.
+   */
+  taskPatch: Partial<Block>;
   answer: string;
   onComment: (text: string) => void;
-  onTaskPatch: (p: Partial<TaskBlock>) => void;
+  onTaskPatch: (p: Partial<Block>) => void;
   onAnswer: (text: string) => void;
-  /**
-   * Per-hunk review state for a `diff` block (hunkId → verdict + comment).
-   * Optional so existing v1/v2 call sites keep working unchanged.
-   */
-  hunkReview?: Record<string, HunkReview>;
-  /** Per-hunk review mutation (R5, hunk-level only). */
-  onHunkReview?: (hunkId: string, next: HunkReview) => void;
   /**
    * All blocks in the document keyed by id — used by `phase` to resolve its
    * `taskIds` to task titles. Optional so existing call sites keep working;
@@ -1180,8 +904,6 @@ export function BlockRenderer({
   onComment,
   onTaskPatch,
   onAnswer,
-  hunkReview = {},
-  onHunkReview,
   byId = {},
 }: BlockRendererProps) {
   let body: ReactNode;
@@ -1196,8 +918,14 @@ export function BlockRenderer({
       body = <ObjectiveView block={block} />;
       break;
     case 'task':
+      // The inline task affordance only ever reads/writes task fields, so
+      // narrowing the M4-widened Partial<Block> patch surface here is sound.
       body = (
-        <TaskView block={block} patch={taskPatch} onPatch={onTaskPatch} />
+        <TaskView
+          block={block}
+          patch={taskPatch as Partial<TaskBlock>}
+          onPatch={onTaskPatch as (p: Partial<TaskBlock>) => void}
+        />
       );
       break;
     case 'decision':
@@ -1231,26 +959,9 @@ export function BlockRenderer({
     case 'diagram':
       body = <DiagramView block={block} />;
       break;
-    // v3 (diff-review-scoped) kind — Milestone R0 placeholder satisfying the
-    // exhaustiveness guard below. R4: full DiffView (file-path header, per-hunk
-    // unified-diff render, per-hunk accept/reject + comment affordance).
-    // v3 (diff-review-scoped) kind — Milestone R4. Real DiffView (file-path
-    // header, per-hunk unified-diff render, per-hunk accept/reject + comment
-    // affordance). Satisfies the `_never` guard with a real render, not null.
-    case 'diff':
-      body = (
-        <DiffView
-          block={block}
-          review={hunkReview}
-          onHunkReview={(hunkId, next) =>
-            onHunkReview?.(hunkId, next)
-          }
-        />
-      );
-      break;
     default: {
-      // Exhaustiveness guard: every one of the 14 Block kinds (7 v1 + 6 v2 +
-      // 1 v3) is handled above, so `block` is `never` here. If a new kind is
+      // Exhaustiveness guard: every one of the 13 Block kinds (7 v1 + 6 v2)
+      // is handled above, so `block` is `never` here. If a new kind is
       // added to the `Block` union without a case, this assignment fails to
       // compile — a build-time completeness gate (plan §3 schema engine
       // extension points). The runtime arm only renders if the type system is

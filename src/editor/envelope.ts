@@ -39,6 +39,15 @@ export interface FeedbackEnvelope {
   baseRevision: number;
   ops: Edit[];
   globalComment?: string;
+  /**
+   * M3 ("edits actually stick"): the reviewer's full edited WORKING document
+   * (canonical Document shape). Present on Approve so the PRD path persists the
+   * reviewer's structural edits AS the next revision (the ops[] above stay
+   * advisory — M2). Omitted on revise (the re-author loop is unchanged). The
+   * server-side persistence revalidates this; an absent/invalid value falls
+   * back to the agent-authored doc, so this never blocks the round-trip.
+   */
+  editedDocument?: PlanDocument;
 }
 
 /**
@@ -73,34 +82,48 @@ export const ENVELOPE_ENDPOINTS: Record<EditorDecision, string> = {
   revise: '/api/deny',
 };
 
-/** The default production transport — POSTs the envelope as JSON. */
+/**
+ * The default production transport — POSTs the envelope as JSON.
+ *
+ * M2 Defect 2: this MUST surface a real delivery failure. Previously a failed
+ * POST was swallowed (`console.info`) and the UI still flipped to "captured",
+ * so the agent could be told a decision was delivered when it never reached
+ * the server. We now (a) throw on a network error, and (b) throw on a non-2xx
+ * response — the caller awaits this and shows a real failure state instead of
+ * a false confirmation.
+ */
 export const fetchTransport: EnvelopeTransport = async (decision, envelope) => {
   const url = ENVELOPE_ENDPOINTS[decision];
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(envelope),
-    });
-  } catch {
-    // Offline / no server — the decision is still captured in the UI; the
-    // envelope is logged for the manual smoke. Never throw from the seam.
-    console.info('[planos] envelope (offline)', { decision, envelope });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(envelope),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `[planos] transport failed: ${decision} → ${url} returned ${res.status}`
+    );
   }
 };
 
 /**
- * Build the envelope for `decision` and hand it to `transport`. This is the
- * single function the React layer calls; the transport is injected so the
- * emit path is exercised offline in tests.
+ * Build the envelope for `decision` and hand it to `transport`, awaiting
+ * delivery. This is the single function the React layer calls; the transport
+ * is injected so the emit path is exercised offline in tests.
+ *
+ * M2 Defect 2: returns a promise that resolves with the built envelope ONLY
+ * after the transport has successfully delivered it (and rejects if delivery
+ * fails). The caller (App.tsx) awaits this before flipping the UI to the
+ * terminal "captured/approved" state, so the confirmation can never precede —
+ * or contradict — the actual delivery.
  */
-export function emitEnvelope(
+export async function emitEnvelope(
   decision: EditorDecision,
   doc: PlanDocument,
   editorState: EditorState,
   transport: EnvelopeTransport = fetchTransport
-): FeedbackEnvelope {
+): Promise<FeedbackEnvelope> {
   const envelope = buildEnvelope(decision, doc, editorState);
-  void transport(decision, envelope);
+  await transport(decision, envelope);
   return envelope;
 }

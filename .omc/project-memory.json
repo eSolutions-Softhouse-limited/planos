@@ -42,8 +42,8 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos\necho \"=== roundtrip.mjs diff vs HEAD ===\" ; git -c core.pager=cat diff HEAD -- src/hook/roundtrip.mjs | head -40\necho \"=== plugin/bin/planos diff size vs HEAD ===\" ; git -c core.pager=cat diff --stat HEAD -- plugin/bin/planos\necho \"=== is build:bin deterministic? rebuild twice, compare ===\" \nnpm run build:bin >/dev/null 2>&1; cp plugin/bin/planos /tmp/planos.a\nnpm run build:bin >/dev/null 2>&1; cp plugin/bin/planos /tmp/planos.b\ncmp /tmp/planos.a /tmp/planos.b && echo \"deterministic across rebuilds\" || echo \"NON-DETERMINISTIC ⚠\"\necho \"=== rebuilt vs committed HEAD ===\" \ngit -c core.pager=cat show HEAD:plugin/bin/planos > /tmp/planos.head 2>/dev/null\ncmp /tmp/planos.head plugin/bin/planos && echo \"rebuilt == committed HEAD (clean)\" || echo \"rebuilt != committed HEAD ⚠ (drift)\"",
-    "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
+    "buildCommand": "npx tsc --noEmit 2>&1 | tail -15; echo \"TSC_EXIT=$?\"",
+    "testCommand": "npm test 2>&1 | tail -30",
     "lintCommand": null,
     "devCommand": null,
     "scripts": {
@@ -136,20 +136,32 @@
   "hotPaths": [
     {
       "path": "src/schema/validate.mjs",
-      "accessCount": 34,
-      "lastAccessed": 1778969550307,
-      "type": "file"
-    },
-    {
-      "path": "src/hook/exit.mjs",
-      "accessCount": 22,
-      "lastAccessed": 1778970743144,
+      "accessCount": 52,
+      "lastAccessed": 1779017186692,
       "type": "file"
     },
     {
       "path": "docs/design.md",
+      "accessCount": 29,
+      "lastAccessed": 1779016161822,
+      "type": "file"
+    },
+    {
+      "path": "src/hook/exit.mjs",
+      "accessCount": 24,
+      "lastAccessed": 1779011154447,
+      "type": "file"
+    },
+    {
+      "path": "src/server/index.mjs",
+      "accessCount": 12,
+      "lastAccessed": 1779016472339,
+      "type": "file"
+    },
+    {
+      "path": "src/schema/id-strategy.mjs",
       "accessCount": 7,
-      "lastAccessed": 1778940437549,
+      "lastAccessed": 1779013950107,
       "type": "file"
     },
     {
@@ -165,27 +177,15 @@
       "type": "file"
     },
     {
-      "path": "src/schema/id-strategy.mjs",
-      "accessCount": 5,
-      "lastAccessed": 1778926524400,
+      "path": "src/schema/index.mjs",
+      "accessCount": 6,
+      "lastAccessed": 1779013408866,
       "type": "file"
     },
     {
       "path": "tests/fixtures/fixture-format.md",
       "accessCount": 4,
       "lastAccessed": 1778923303311,
-      "type": "file"
-    },
-    {
-      "path": "src/schema/index.mjs",
-      "accessCount": 4,
-      "lastAccessed": 1778926523120,
-      "type": "file"
-    },
-    {
-      "path": "src/server/index.mjs",
-      "accessCount": 4,
-      "lastAccessed": 1778970744117,
       "type": "file"
     },
     {
@@ -196,8 +196,8 @@
     },
     {
       "path": "tests/harness/result-shape.test.mjs",
-      "accessCount": 2,
-      "lastAccessed": 1778924012836,
+      "accessCount": 3,
+      "lastAccessed": 1779013050910,
       "type": "file"
     },
     {

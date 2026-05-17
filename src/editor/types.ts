@@ -11,7 +11,7 @@
 export type LMH = 'L' | 'M' | 'H';
 export type TaskStatus = 'todo' | 'doing' | 'done' | 'cut';
 export type DocStatus = 'draft' | 'in-review' | 'approved';
-export type DocType = 'plan' | 'prd' | 'diff-review';
+export type DocType = 'plan' | 'prd';
 
 export interface SectionBlock {
   id: string;
@@ -130,44 +130,6 @@ export interface DiagramBlock {
   mermaid: string;
 }
 
-// ---------------------------------------------------------------------------
-// v3 block kind (diff-review-scoped — design.md §4). Mirror of
-// src/schema/types.d.ts; keep both in sync. Runtime mirror is
-// src/schema/validate.mjs (V3_KINDS + KIND_VALIDATORS.diff).
-// ---------------------------------------------------------------------------
-
-export interface DiffLine {
-  op: ' ' | '+' | '-';
-  text: string;
-}
-
-export interface Hunk {
-  header: string;
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  lines: DiffLine[];
-  hunkId: string;
-}
-
-export interface BlockComment {
-  commentId: string;
-  hunkId: string | null;
-  text: string;
-  verdict: 'accept' | 'reject' | 'comment';
-}
-
-export interface DiffBlock {
-  id: string;
-  kind: 'diff';
-  path: string;
-  hunks: Hunk[];
-  comments: BlockComment[];
-  status?: 'added' | 'modified' | 'deleted' | 'renamed' | 'binary';
-  oldPath?: string;
-}
-
 export type Block =
   | SectionBlock
   | ProseBlock
@@ -181,8 +143,7 @@ export type Block =
   | FileChangeBlock
   | CodeBlock
   | TableBlock
-  | DiagramBlock
-  | DiffBlock;
+  | DiagramBlock;
 
 export type BlockKind = Block['kind'];
 
@@ -212,33 +173,49 @@ export interface PlanDocument {
  * envelope-emission step (US-017) consumes exactly this; nothing here knows
  * about serialization, `documentId`, or `baseRevision`.
  */
-/**
- * One per-hunk review entry (R5, hunk-level only). `verdict` is the tri-state
- * accept/reject/comment toggle; `text` the optional per-hunk comment. Mirrors
- * the persisted `BlockComment{verdict}` shape minus the minted `commentId`
- * (the envelope builder mints that deterministically — §3.4).
- */
-export interface HunkReview {
-  verdict: 'accept' | 'reject' | 'comment';
-  text: string;
+/** A new block the reviewer added, anchored AFTER `afterId` (null = prepend). */
+export interface BlockAdd {
+  /** Insert directly after this existing block id; `null` prepends. */
+  afterId: string | null;
+  /**
+   * The new block. `id` may be omitted/empty — deriveWorkingDoc mints a
+   * deterministic, collision-free id. Loosely typed (the modal builds a
+   * partial of the chosen kind, then deriveWorkingDoc folds it in).
+   */
+  block: Partial<Block> & { kind: BlockKind };
 }
 
 export interface EditorState {
-  /** blockId → shallow patch of changed fields (task edits). */
-  edits: Record<string, Partial<TaskBlock>>;
+  /**
+   * blockId → shallow patch of changed fields. M4: ANY field of ANY kind
+   * (not just task) — the per-kind edit modals produce these.
+   */
+  edits: Record<string, Partial<Block>>;
   /** blockId → reviewer comment text. */
   comments: Record<string, string>;
   /** blockId → answer text (openQuestion). */
   answers: Record<string, string>;
+  /** M4: block ids the reviewer deleted (id-stable; nothing renumbers). */
+  deletes?: string[];
+  /** M4: blocks the reviewer added, in insertion order. */
+  adds?: BlockAdd[];
   /**
-   * blockId → (hunkId → per-hunk review). The v3 `diff` per-hunk
-   * accept/reject/comment surface (R5, hunk-level only). Serialized into an
-   * `editBlock` op whose patch updates that `diff` block's `comments[]` with a
-   * `BlockComment{commentId, hunkId, text, verdict}` — NO new envelope op.
+   * M5: the reviewer's desired block sequence over the WORKING ids (base +
+   * adds, minus deletes). A pure permutation consumed at the single
+   * deriveWorkingDoc seam — never mints/renumbers an id, never adds/drops a
+   * block. Ids not listed keep their relative position (re-appended after the
+   * ordered ones); ids that aren't live are skipped (deletes wins).
    */
-  reviewVerdicts?: Record<string, Record<string, HunkReview>>;
+  order?: string[];
   /** Optional document-wide comment. */
   globalComment?: string;
+  /**
+   * M3: the reviewer's full edited working document, derived from the base doc
+   * + the affordances above. Consumed by the envelope builder on Approve so
+   * the PRD path persists the structural edits as the next revision. Advisory
+   * comment/globalComment are NOT folded into this — they stay envelope-only.
+   */
+  editedDocument?: PlanDocument;
 }
 
 export type EditorDecision = 'approve' | 'revise';

@@ -179,46 +179,10 @@ test('AC-P14 offline mermaid is bundled (no CDN / network at runtime)', () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Phase 3 / Milestone R4 — v3 `diff` renderer + per-hunk review affordance
-// (AC-R11). Non-visual: assert the bundled DiffView discriminant + affordance
-// strings survive minification (the [M] visual demo is the manual smoke).
-// ---------------------------------------------------------------------------
-
-test('AC-R11 bundle contains the v3 diff renderer + per-hunk review affordance', () => {
-  // The dispatcher switches on the `diff` discriminant; the minifier preserves
-  // case-label / JSX string literals.
-  assert.ok(
-    html.includes('"diff"') || html.includes("'diff'") || html.includes('diff'),
-    'bundle missing the v3 diff kind discriminant'
-  );
-  // Per-hunk review affordance strings (R5, hunk-level only) survive verbatim.
-  // Static string fragments only — the `${v} hunk ${hunkId}` aria-label is
-  // built at runtime so only the ` hunk ` literal + the tri-state verdict
-  // literals survive minification (the verdict values come from a literal
-  // array, not a renamed identifier).
-  for (const needle of [
-    'binary file — no textual diff', // R6 empty-hunks binary stub
-    'Per-hunk comment for the agent', // per-hunk comment box placeholder
-    ' hunk ', // accept/reject/comment aria-label static fragment
-    '"accept"', // tri-state verdict literal
-    '"reject"',
-  ]) {
-    assert.ok(
-      html.includes(needle),
-      `bundle missing diff renderer affordance: ${needle}`
-    );
-  }
-  // The `_never` exhaustiveness guard at blocks.tsx is satisfied by a REAL
-  // render (not null): the JSON.stringify(_never...) fallback only fires for
-  // an unhandled kind. With `case 'diff':` present + a real DiffView, the
-  // dispatcher is exhaustive over all 14 kinds and the build (tsc-gated)
-  // succeeds — proven by this bundle existing + the drift check below.
-  assert.ok(
-    html.includes('renamed') && html.includes('hunkId'),
-    'bundle missing diff status (renamed) / hunk-anchor wiring'
-  );
-});
+// AC-R11 (the bundled v3 `diff` renderer + per-hunk review affordance
+// assertion) was deleted in M1 (ADR-0007): the diff-review flow and the v3
+// `diff` kind were removed — planos is PRD-only. The v1/v2 PRD renderer
+// coverage above is unchanged.
 
 // ---------------------------------------------------------------------------
 // Phase 4 / Milestone Q2 — theme token layer (AC-Q2). Non-visual: assert the
@@ -405,22 +369,32 @@ test('AC-Q8 / AC-Q14 NO new runtime dependency added (Q4 = browser print, zero P
     `package.json must declare ZERO runtime dependencies (no PDF / download ` +
       `library); found: ${Object.keys(runtimeDeps).join(', ')}`
   );
-  // The devDependency set is the FROZEN pre-Q3 build toolchain — no new
-  // dependency of any kind was introduced for the export affordances.
+  // The devDependency set is the build toolchain. Q3 added NO dependency; M4b
+  // (the REAL TipTap/ProseMirror WYSIWYG prose editor) adds @tiptap/react +
+  // @tiptap/starter-kit + @tiptap/pm + tiptap-markdown as BUILD-TIME
+  // devDependencies — inlined fully into the single-file bundle exactly like
+  // react / mermaid (the "zero RUNTIME dependency" posture means nothing is
+  // fetched at runtime, NOT "no build-time libs"; `dependencies` stays empty,
+  // re-asserted above). This list is the post-M4b frozen toolchain: a drift
+  // from it (a NEW build dep, or a RUNTIME dep) still fails loudly.
   assert.deepEqual(
     Object.keys(pkg.devDependencies ?? {}).sort(),
     [
+      '@tiptap/pm',
+      '@tiptap/react',
+      '@tiptap/starter-kit',
       '@types/react',
       '@types/react-dom',
       '@vitejs/plugin-react',
       'mermaid',
       'react',
       'react-dom',
+      'tiptap-markdown',
       'typescript',
       'vite',
       'vite-plugin-singlefile',
     ],
-    'package.json devDependencies drifted — no new dependency may be added for Q3'
+    'package.json devDependencies drifted — only the M4b TipTap build deps may be added'
   );
 });
 
@@ -442,13 +416,17 @@ test('AC-P17 committed plugin/dist/index.html is byte-identical to a fresh rebui
   );
 });
 
-test('AC-P17 bundle size is under the documented cap (≤ 4 MB)', () => {
+test('AC-P17 bundle size is under the documented cap (≤ 7 MB)', () => {
   // Resolved Decision D3 accepts a larger artifact for visual diagram
   // rendering but requires the growth to be documented + asserted within a
-  // sane cap. Mermaid pushes the single-file bundle to ~3.3 MB; the cap is
-  // set to 4 MB (≈ 700 KB headroom) to catch runaway bloat / accidental
-  // double-bundling while permitting the mermaid renderer.
-  const CAP_BYTES = 4 * 1024 * 1024;
+  // sane cap. Mermaid pushed the single-file bundle to ~3.3 MB. Milestone M4b
+  // adds the REAL TipTap/ProseMirror WYSIWYG prose editor (build-time deps,
+  // inlined like react/mermaid — nothing fetched at runtime); the bundle
+  // measures ~3.79 MB (≈ +0.5 MB for TipTap + tiptap-markdown). The cap is
+  // raised to 7 MB (≈ 2x the pre-M4b 3.3 MB baseline, ≈ 3.2 MB headroom) to
+  // permit the WYSIWYG editor while still catching runaway bloat / accidental
+  // double-bundling.
+  const CAP_BYTES = 7 * 1024 * 1024;
   const size = readFileSync(BUNDLE).length;
   assert.ok(
     size <= CAP_BYTES,

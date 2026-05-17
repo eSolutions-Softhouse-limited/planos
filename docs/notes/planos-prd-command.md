@@ -1,5 +1,12 @@
 # `/planos-prd` Command — AC-17 Boundary Note
 
+> **Partial historical context.** This note was written before ADR-0007 (PRD-only
+> consolidation). References to `plugin/hooks/hooks.json`, `ExitPlanMode`,
+> `PermissionRequest`/`ExitPlanMode` hook, and `docs/notes/planos-plan-command.md` describe
+> the plan-mode hook path that was removed. The PRD command flow described here — agent pipes
+> JSON to `bin/planos prd`, blocking server, browser review, approve/revise — is still current
+> and accurate. `hooks.json` no longer exists; there are no hooks.
+
 **Phase 2 / Milestone P3, Step P3.2**  
 **Related:** `plugin/commands/planos-prd.md`, `docs/design.md §3`, `docs/design.md §5`, phase2 plan §4 (entry topology), §6 (AC-P5, AC-P6), §7 P3, Resolved Decisions D4 (stdin handoff). Parallel to: `docs/notes/planos-plan-command.md`.
 
