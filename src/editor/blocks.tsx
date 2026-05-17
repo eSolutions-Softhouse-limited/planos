@@ -878,10 +878,15 @@ function DiagramView({ block }: { block: DiagramBlock }) {
 export interface BlockRendererProps {
   block: Block;
   comment: string;
-  taskPatch: Partial<TaskBlock>;
+  /**
+   * M4: the accumulated patch for this block (ANY kind's fields — the
+   * inline task affordance only writes task fields; richer per-kind edits
+   * flow through the M4 edit modal in App). Widened from Partial<TaskBlock>.
+   */
+  taskPatch: Partial<Block>;
   answer: string;
   onComment: (text: string) => void;
-  onTaskPatch: (p: Partial<TaskBlock>) => void;
+  onTaskPatch: (p: Partial<Block>) => void;
   onAnswer: (text: string) => void;
   /**
    * All blocks in the document keyed by id — used by `phase` to resolve its
@@ -913,8 +918,14 @@ export function BlockRenderer({
       body = <ObjectiveView block={block} />;
       break;
     case 'task':
+      // The inline task affordance only ever reads/writes task fields, so
+      // narrowing the M4-widened Partial<Block> patch surface here is sound.
       body = (
-        <TaskView block={block} patch={taskPatch} onPatch={onTaskPatch} />
+        <TaskView
+          block={block}
+          patch={taskPatch as Partial<TaskBlock>}
+          onPatch={onTaskPatch as (p: Partial<TaskBlock>) => void}
+        />
       );
       break;
     case 'decision':

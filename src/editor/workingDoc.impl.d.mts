@@ -9,5 +9,14 @@ import { type EditorState, type PlanDocument } from './types';
 
 export function deriveWorkingDoc(
   baseDoc: PlanDocument,
-  editorState?: Pick<EditorState, 'edits' | 'answers'>
+  editorState?: Pick<EditorState, 'edits' | 'answers' | 'deletes' | 'adds'>
 ): PlanDocument;
+
+/**
+ * Deterministically mint a stable, collision-free `b<n>` id for a new block,
+ * seeded past every existing id (never renumbers an existing block).
+ */
+export function mintAddedBlockId(
+  existingIds: Iterable<string>,
+  ordinal?: number
+): string;

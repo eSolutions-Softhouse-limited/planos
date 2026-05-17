@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; node --test tests/*.test.mjs tests/harness/*.test.mjs > /tmp/planos_m3.log 2>&1; echo \"suite exit=$?\"; grep -E \"^ℹ (tests|pass|fail)\" /tmp/planos_m3.log; npm run build:bin >/dev/null 2>&1 && echo \"build:bin OK\" || echo \"build:bin FAIL\"; npm run build:editor >/dev/null 2>&1 && echo \"build:editor OK\" || echo \"build:editor FAIL\"; git status --porcelain | grep -c . | xargs echo \"changed files:\"",
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; npx tsc --noEmit -p . > /tmp/tsc.log 2>&1; echo \"tsc exit=$?\"; echo \"--- output (lines: $(wc -l </tmp/tsc.log)) ---\"; cat /tmp/tsc.log; echo \"--- App.tsx:400 context (the flagged line) ---\"; sed -n '408,420p' src/editor/App.tsx",
     "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
     "lintCommand": null,
     "devCommand": null,
@@ -136,8 +136,8 @@
   "hotPaths": [
     {
       "path": "src/schema/validate.mjs",
-      "accessCount": 46,
-      "lastAccessed": 1779011697607,
+      "accessCount": 47,
+      "lastAccessed": 1779013950520,
       "type": "file"
     },
     {
@@ -159,6 +159,12 @@
       "type": "file"
     },
     {
+      "path": "src/schema/id-strategy.mjs",
+      "accessCount": 7,
+      "lastAccessed": 1779013950107,
+      "type": "file"
+    },
+    {
       "path": "tests/fixtures/example.fixture.json",
       "accessCount": 6,
       "lastAccessed": 1778923867138,
@@ -168,12 +174,6 @@
       "path": "src/hook/enter.mjs",
       "accessCount": 6,
       "lastAccessed": 1778971192197,
-      "type": "file"
-    },
-    {
-      "path": "src/schema/id-strategy.mjs",
-      "accessCount": 6,
-      "lastAccessed": 1779011170269,
       "type": "file"
     },
     {

@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { BlockRenderer } from './blocks';
+import { BlockAddModal, BlockEditModal } from './blockEdit';
 import { HistoryBrowser } from './history';
 import {
   type EnvelopeTransport,
@@ -18,13 +19,14 @@ import {
 } from './envelope';
 import { ExportControls, PrintStyles, SCREEN_ONLY_ATTR } from './export';
 import { loadDocument } from './loader';
-import { deriveWorkingDoc } from './workingDoc';
+import { deriveWorkingDoc, mintAddedBlockId } from './workingDoc';
 import { ThemeProvider, useTheme, useThemeControl } from './theme';
 import {
+  type Block,
+  type BlockAdd,
   type EditorCallbacks,
   type EditorState,
   type PlanDocument,
-  type TaskBlock,
 } from './types';
 
 interface AppProps extends EditorCallbacks {
@@ -64,6 +66,45 @@ function ThemeToggle() {
   );
 }
 
+/** A thin "+ add block here" insertion affordance between blocks. */
+function AddHere({
+  label,
+  onClick,
+  ...rest
+}: {
+  label: string;
+  onClick: () => void;
+} & Record<string, unknown>) {
+  const theme = useTheme();
+  return (
+    <div
+      {...rest}
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        margin: '4px 0',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`Add block ${label}`}
+        style={{
+          fontSize: 12,
+          color: theme.textMuted,
+          background: theme.surfaceMuted,
+          border: `1px dashed ${theme.borderStrong}`,
+          borderRadius: 6,
+          padding: '3px 12px',
+          cursor: 'pointer',
+        }}
+      >
+        + add block {label}
+      </button>
+    </div>
+  );
+}
+
 function AppInner({
   onApprove,
   onRevise,
@@ -80,10 +121,20 @@ function AppInner({
   >('idle');
   const [errorMsg, setErrorMsg] = useState<string>('');
 
-  const [edits, setEdits] = useState<Record<string, Partial<TaskBlock>>>({});
+  const [edits, setEdits] = useState<Record<string, Partial<Block>>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [globalComment, setGlobalComment] = useState('');
+  // M4: structural edits — deleted block ids + ordered block adds. Both fold
+  // back through the single deriveWorkingDoc seam (id-stable; no renumber).
+  const [deletes, setDeletes] = useState<string[]>([]);
+  const [adds, setAdds] = useState<BlockAdd[]>([]);
+  // Which block the edit modal is open on, and the add-modal anchor (afterId
+  // === undefined means closed; null means "add at the top").
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [addingAfter, setAddingAfter] = useState<
+    { afterId: string | null; label: string } | undefined
+  >(undefined);
 
   useEffect(() => {
     let alive = true;
@@ -95,13 +146,9 @@ function AppInner({
     };
   }, []);
 
-  const byId = useMemo(
-    () =>
-      doc
-        ? Object.fromEntries(doc.blocks.map((b) => [b.id, b]))
-        : {},
-    [doc]
-  );
+  // M4: derive `byId` (used by phase to resolve task titles) from the WORKING
+  // doc so freshly edited/added titles resolve live. Filled in after
+  // workingDoc is computed below; declared via a function to keep ordering.
 
   // M3: the single mutable WORKING COPY of the document. It is derived purely
   // from the loaded base doc + the reviewer's existing edit affordances (task
@@ -109,9 +156,60 @@ function AppInner({
   // comment/globalComment envelope stays advisory (M2). M4/M5 add their richer
   // edit/reorder mappings inside deriveWorkingDoc — App keeps this one seam.
   const workingDoc = useMemo(
-    () => (doc ? deriveWorkingDoc(doc, { edits, answers }) : null),
-    [doc, edits, answers]
+    () => (doc ? deriveWorkingDoc(doc, { edits, answers, deletes, adds }) : null),
+    [doc, edits, answers, deletes, adds]
   );
+
+  // byId over the WORKING doc so phase task-title resolution sees live edits.
+  const byId = useMemo(
+    () =>
+      workingDoc
+        ? Object.fromEntries(workingDoc.blocks.map((b) => [b.id, b]))
+        : {},
+    [workingDoc]
+  );
+
+  // The blocks the SPA renders — the WORKING doc's blocks (M3 flagged the
+  // renderer must switch off the immutable base; this is that switch).
+  const renderBlocks: Block[] = workingDoc ? workingDoc.blocks : [];
+
+  // The block currently open in the edit modal (resolved against workingDoc so
+  // the modal seeds from the reviewer's in-progress edits, not the stale base).
+  const editingBlock: Block | null = useMemo(
+    () =>
+      workingDoc && editingId
+        ? (workingDoc.blocks.find((b) => b.id === editingId) ?? null)
+        : null,
+    [workingDoc, editingId]
+  );
+
+  // Save an edit-modal patch. The block may be a BASE block (→ `edits`) or a
+  // reviewer-ADDED block (→ patch the matching entry in `adds` so its id stays
+  // stable and the single fold-back site still sees the final block).
+  function saveEdit(blockId: string, patch: Partial<Block>) {
+    const addIdx = adds.findIndex((a) => a.block.id === blockId);
+    if (addIdx >= 0) {
+      setAdds((prev) =>
+        prev.map((a, i) =>
+          i === addIdx ? { ...a, block: { ...a.block, ...patch } } : a
+        )
+      );
+    } else {
+      setEdits((e) => ({ ...e, [blockId]: { ...(e[blockId] ?? {}), ...patch } }));
+    }
+  }
+
+  // Delete a block. A reviewer-added block is removed from `adds` (it never
+  // existed in the base); a base block id goes into `deletes` (id-stable —
+  // deriveWorkingDoc drops only that id, nothing renumbers).
+  function deleteBlock(blockId: string) {
+    const addIdx = adds.findIndex((a) => a.block.id === blockId);
+    if (addIdx >= 0) {
+      setAdds((prev) => prev.filter((_, i) => i !== addIdx));
+    } else {
+      setDeletes((d) => (d.includes(blockId) ? d : [...d, blockId]));
+    }
+  }
 
   const state: EditorState = useMemo(
     () => ({
@@ -122,11 +220,13 @@ function AppInner({
       answers: Object.fromEntries(
         Object.entries(answers).filter(([, v]) => v.trim().length > 0)
       ),
+      deletes: deletes.length > 0 ? deletes : undefined,
+      adds: adds.length > 0 ? adds : undefined,
       globalComment: globalComment.trim() || undefined,
       // Carried on approve only (envelope.impl.mjs gates on decision).
       editedDocument: workingDoc ?? undefined,
     }),
-    [edits, comments, answers, globalComment, workingDoc]
+    [edits, comments, answers, deletes, adds, globalComment, workingDoc]
   );
 
   // M2 Defect 2: await the transport BEFORE flipping the UI to the terminal
@@ -236,30 +336,116 @@ function AppInner({
             {doc.title}
           </h1>
           <p style={{ fontSize: 13, color: theme.textMuted, margin: '0 0 20px' }}>
-            {doc.blocks.length} blocks · document {doc.id}
+            {renderBlocks.length} blocks · document {doc.id}
             {doc.meta.degraded && ' · ⚠ this plan was not structured'}
           </p>
 
-          {doc.blocks.map((block) => (
-            <BlockRenderer
-              key={block.id}
-              block={block}
-              byId={byId}
-              comment={comments[block.id] ?? ''}
-              taskPatch={edits[block.id] ?? {}}
-              answer={answers[block.id] ?? ''}
-              onComment={(text) =>
-                setComments((c) => ({ ...c, [block.id]: text }))
-              }
-              onTaskPatch={(p) =>
-                setEdits((e) => ({ ...e, [block.id]: p }))
-              }
-              onAnswer={(text) =>
-                setAnswers((a) => ({ ...a, [block.id]: text }))
-              }
-            />
+          {/* M4: render from the WORKING doc so edits/adds/deletes are live. */}
+          <AddHere
+            {...{ [SCREEN_ONLY_ATTR]: '' }}
+            label="at the top"
+            onClick={() =>
+              setAddingAfter({ afterId: null, label: 'at the top' })
+            }
+          />
+          {renderBlocks.map((block) => (
+            <div key={block.id}>
+              <div style={{ position: 'relative' }}>
+                <div
+                  {...{ [SCREEN_ONLY_ATTR]: '' }}
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    justifyContent: 'flex-end',
+                    marginBottom: -6,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEditingId(block.id)}
+                    aria-label={`Edit block ${block.id}`}
+                    style={{
+                      fontSize: 12,
+                      color: theme.accent,
+                      background: 'none',
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      padding: '2px 9px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✎ edit block
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteBlock(block.id)}
+                    aria-label={`Delete block ${block.id}`}
+                    style={{
+                      fontSize: 12,
+                      color: theme.statusCutFg,
+                      background: 'none',
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      padding: '2px 9px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🗑 delete
+                  </button>
+                </div>
+                <BlockRenderer
+                  block={block}
+                  byId={byId}
+                  comment={comments[block.id] ?? ''}
+                  taskPatch={edits[block.id] ?? {}}
+                  answer={answers[block.id] ?? ''}
+                  onComment={(text) =>
+                    setComments((c) => ({ ...c, [block.id]: text }))
+                  }
+                  onTaskPatch={(p) => saveEdit(block.id, p)}
+                  onAnswer={(text) =>
+                    setAnswers((a) => ({ ...a, [block.id]: text }))
+                  }
+                />
+              </div>
+              <AddHere
+                {...{ [SCREEN_ONLY_ATTR]: '' }}
+                label={`after ${block.id}`}
+                onClick={() =>
+                  setAddingAfter({
+                    afterId: block.id,
+                    label: `after ${block.id}`,
+                  })
+                }
+              />
+            </div>
           ))}
         </div>
+
+        {editingBlock && (
+          <BlockEditModal
+            block={editingBlock}
+            onSave={(patch) => saveEdit(editingBlock.id, patch)}
+            onClose={() => setEditingId(null)}
+          />
+        )}
+        {addingAfter && (
+          <BlockAddModal
+            afterId={addingAfter.afterId}
+            positionLabel={addingAfter.label}
+            onAdd={(afterId, block) => {
+              const liveIds = new Set(
+                (workingDoc?.blocks ?? []).map((b) => b.id)
+              );
+              const id = mintAddedBlockId(liveIds);
+              setAdds((prev) => [
+                ...prev,
+                { afterId, block: { ...block, id } },
+              ]);
+            }}
+            onClose={() => setAddingAfter(undefined)}
+          />
+        )}
 
         <div {...{ [SCREEN_ONLY_ATTR]: '' }}>
           <HistoryBrowser />

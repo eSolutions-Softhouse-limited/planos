@@ -1,28 +1,41 @@
 /**
- * planos editor — pure working-document model (Milestone M3).
+ * planos editor — pure working-document model (Milestone M3 → M4).
  *
  * M3 ("edits actually stick"): the SPA holds a single mutable WORKING COPY of
  * the document derived from the inlined `window.__PLANOS_DOC__`. The reviewer's
- * existing edit affordances (task field patches, openQuestion answers) mutate
- * THIS working doc, and on Approve the full working doc is transmitted so the
- * PRD path can persist it as the NEXT revision.
+ * edit affordances mutate THIS working doc, and on Approve the full working doc
+ * is transmitted so the PRD path can persist it as the NEXT revision.
+ *
+ * M4 ("rich interactive editing"): the same single fold-back site now also
+ * folds back:
+ *   - field patches for ALL v2 PRD kinds (the shallow merge was always
+ *     kind-agnostic — the per-kind edit modals just produce richer patches),
+ *   - structural ADD (`adds`) and DELETE (`deletes`) of blocks, id-stable:
+ *     existing ids are NEVER renumbered; added blocks get deterministic ids.
  *
  * This module is the SINGLE place editor interaction state is folded back into
  * a canonical Document. It is intentionally:
  *   - PURE: no React, no clock, no network — a (baseDoc, editorState) → doc fn.
  *   - ADDITIVE over the M2 envelope: comments + globalComment stay advisory
  *     (they are NOT structural document content) and are NOT applied here.
- *   - The M4/M5 extension point: rich edit modals / table / diagram / prose
- *     edits and drag-drop reordering land as new EditorState shapes consumed
- *     HERE (one mapping site), with NO schema or transport change.
+ *   - The M5 extension point: reorder/move lands as a new EditorState shape
+ *     consumed HERE (one mapping site), with NO schema or transport change.
  *
- * Mapping (current, limited, affordances — the M3 test vehicle):
+ * Mapping (M4):
  *   - editorState.edits[blockId]   → shallow field patch merged onto the block
- *     (TaskBlock title/status/acceptance today; any future field tomorrow).
+ *     (ANY field of ANY kind — task/objective/prose/section/decision/risk/
+ *     phase/tradeoff/fileChange/code/table/diagram/openQuestion).
  *   - editorState.answers[blockId] → openQuestion `answer` field set on the
  *     matching block (only when the block is an openQuestion; a stray answer
  *     for a non-openQuestion block is ignored — it rides the advisory envelope
  *     as today, never corrupts the structural doc).
+ *   - editorState.deletes          → Set/array of block ids removed from the
+ *     working doc (id-stable: only listed ids vanish; nothing renumbers).
+ *   - editorState.adds             → ordered list of { afterId|null, block }
+ *     insertions. `afterId:null` prepends; an unknown afterId appends to the
+ *     end (never silently dropped). Added blocks keep whatever id they carry;
+ *     `mintAddedBlockId` deterministically synthesizes a stable, collision-free
+ *     id when the caller does not supply one.
  *
  * Implemented as plain `.mjs` (zero toolchain) so the Node test harness can
  * import it directly; `workingDoc.ts` re-exports it for the typed call sites.
@@ -37,20 +50,60 @@ const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
+ * Deterministically mint a stable, collision-free id for a newly-added block.
+ *
+ * Mirrors the production `opaque` id scheme (src/schema/id-strategy.mjs): a
+ * short `b<n>` token seeded PAST the highest existing `b<number>` so a fresh
+ * add never collides with — and never renumbers — an id the agent already
+ * authored. Pure and deterministic: the same `existingIds` set + the same
+ * number of prior adds always yields the same id, which is what the M4 model
+ * tests pin (id-stable add).
+ *
+ * Re-implemented here (not imported) to keep this module zero-dependency and
+ * importable by the bare Node test harness; the scheme is byte-identical to
+ * `opaqueFactory().mint` for the `b<n>` shape.
+ *
+ * @param {Iterable<string>} existingIds
+ * @param {number} [ordinal=0]  how many ids were already minted in this batch
+ * @returns {string}
+ */
+export function mintAddedBlockId(existingIds, ordinal = 0) {
+  const taken =
+    existingIds instanceof Set ? existingIds : new Set(existingIds || []);
+  let counter = 0;
+  for (const id of taken) {
+    const m = /^b(\d+)$/.exec(id);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > counter) counter = n;
+    }
+  }
+  // Advance past any ids already minted earlier in the same add batch.
+  counter += ordinal;
+  let candidate;
+  do {
+    counter += 1;
+    candidate = `b${counter}`;
+  } while (taken.has(candidate));
+  return candidate;
+}
+
+/**
  * Derive the reviewer's working document from the loaded base document and the
  * accumulated editor interaction state.
  *
- * Block order and identity are preserved (id is never minted/renumbered here —
- * the current affordances only patch existing blocks). A block with no edits
- * and no applicable answer passes through byte-unchanged, so a review with NO
- * structural edits yields a working doc that canonicalizes equal to the base
- * (M3 no-op correctness — the PRD path relies on that to skip a spurious
- * revision).
+ * Block identity is preserved: an existing block's id is NEVER minted or
+ * renumbered here. A block with no edits, no applicable answer, and not in the
+ * delete set passes through byte-unchanged, so a review with NO structural
+ * edits yields a working doc that canonicalizes equal to the base (no-op
+ * correctness — the PRD path relies on that to skip a spurious revision).
  *
  * @param {{ id: string, meta: object, blocks: Array<Record<string, unknown>> }} baseDoc
  * @param {{
  *   edits?:   Record<string, Record<string, unknown>>,
  *   answers?: Record<string, string>,
+ *   deletes?: string[] | Set<string>,
+ *   adds?:    Array<{ afterId: string | null, block: Record<string, unknown> }>,
  * }} [editorState]
  * @returns {object}  A new Document (the working copy). `baseDoc` is untouched.
  */
@@ -65,9 +118,22 @@ export function deriveWorkingDoc(baseDoc, editorState) {
   const state = editorState || {};
   const edits = isObj(state.edits) ? state.edits : {};
   const answers = isObj(state.answers) ? state.answers : {};
+  const deletes =
+    state.deletes instanceof Set
+      ? state.deletes
+      : new Set(Array.isArray(state.deletes) ? state.deletes : []);
+  const adds = Array.isArray(state.adds) ? state.adds : [];
 
-  const blocks = baseDoc.blocks.map((block) => {
+  // Pass 1: patch + answer + delete existing blocks (id-stable).
+  const patched = [];
+  for (const block of baseDoc.blocks) {
     const id = block && block.id;
+
+    if (typeof id === 'string' && deletes.has(id)) {
+      // Reviewer removed this block — drop it. Nothing else renumbers.
+      continue;
+    }
+
     let next = block;
 
     // openQuestion answers become the block's `answer` field. We only apply it
@@ -84,9 +150,9 @@ export function deriveWorkingDoc(baseDoc, editorState) {
       next = { ...next, answer: answers[id] };
     }
 
-    // Field patches (today: TaskBlock title/status/acceptance) are merged
-    // shallowly over the block. An empty patch is a no-op (the block passes
-    // through byte-unchanged so the no-op-equality check holds).
+    // Field patches (ANY field of ANY kind) are merged shallowly over the
+    // block. An empty patch is a no-op (the block passes through byte-unchanged
+    // so the no-op-equality check holds).
     if (typeof id === 'string' && hasOwn(edits, id)) {
       const patch = edits[id];
       if (isObj(patch) && Object.keys(patch).length > 0) {
@@ -94,8 +160,63 @@ export function deriveWorkingDoc(baseDoc, editorState) {
       }
     }
 
-    return next;
-  });
+    patched.push(next);
+  }
+
+  // Pass 2: splice in added blocks. Each add is positioned AFTER `afterId`
+  // (null → prepend; unknown id → append). Added blocks are id-stable: a
+  // caller-supplied non-empty string id is honoured verbatim; otherwise a
+  // deterministic collision-free id is minted that never clobbers an existing
+  // one. Ordering of multiple adds at the same anchor preserves insertion
+  // order (stable for the no-op / round-trip tests).
+  let blocks = patched;
+  if (adds.length > 0) {
+    const liveIds = new Set();
+    for (const b of patched) {
+      if (b && typeof b.id === 'string') liveIds.add(b.id);
+    }
+    const prepended = [];
+    const afterMap = new Map(); // anchorId → block[]
+    const appended = [];
+
+    for (const entry of adds) {
+      if (!isObj(entry) || !isObj(entry.block)) continue;
+      let block = entry.block;
+      const supplied = block.id;
+      if (typeof supplied !== 'string' || supplied.length === 0) {
+        // liveIds grows each iteration, so the seed-past-highest mint is
+        // already monotonic + collision-free across the batch (no ordinal
+        // bookkeeping needed — that would double-count).
+        const id = mintAddedBlockId(liveIds);
+        liveIds.add(id);
+        block = { ...block, id };
+      } else {
+        liveIds.add(supplied);
+      }
+
+      const afterId = entry.afterId;
+      if (afterId === null || afterId === undefined) {
+        prepended.push(block);
+      } else if (liveIds.has(afterId) || patched.some((b) => b && b.id === afterId)) {
+        const arr = afterMap.get(afterId) || [];
+        arr.push(block);
+        afterMap.set(afterId, arr);
+      } else {
+        // Unknown anchor — never drop the reviewer's block; append it.
+        appended.push(block);
+      }
+    }
+
+    const spliced = [...prepended];
+    for (const b of patched) {
+      spliced.push(b);
+      if (b && typeof b.id === 'string' && afterMap.has(b.id)) {
+        for (const added of afterMap.get(b.id)) spliced.push(added);
+      }
+    }
+    for (const b of appended) spliced.push(b);
+    blocks = spliced;
+  }
 
   return { ...baseDoc, blocks };
 }

@@ -173,13 +173,32 @@ export interface PlanDocument {
  * envelope-emission step (US-017) consumes exactly this; nothing here knows
  * about serialization, `documentId`, or `baseRevision`.
  */
+/** A new block the reviewer added, anchored AFTER `afterId` (null = prepend). */
+export interface BlockAdd {
+  /** Insert directly after this existing block id; `null` prepends. */
+  afterId: string | null;
+  /**
+   * The new block. `id` may be omitted/empty — deriveWorkingDoc mints a
+   * deterministic, collision-free id. Loosely typed (the modal builds a
+   * partial of the chosen kind, then deriveWorkingDoc folds it in).
+   */
+  block: Partial<Block> & { kind: BlockKind };
+}
+
 export interface EditorState {
-  /** blockId → shallow patch of changed fields (task edits). */
-  edits: Record<string, Partial<TaskBlock>>;
+  /**
+   * blockId → shallow patch of changed fields. M4: ANY field of ANY kind
+   * (not just task) — the per-kind edit modals produce these.
+   */
+  edits: Record<string, Partial<Block>>;
   /** blockId → reviewer comment text. */
   comments: Record<string, string>;
   /** blockId → answer text (openQuestion). */
   answers: Record<string, string>;
+  /** M4: block ids the reviewer deleted (id-stable; nothing renumbers). */
+  deletes?: string[];
+  /** M4: blocks the reviewer added, in insertion order. */
+  adds?: BlockAdd[];
   /** Optional document-wide comment. */
   globalComment?: string;
   /**
