@@ -1,12 +1,22 @@
-# planos — Design Doc (Structured Rich Plan/PRD Plugin)
+# planos — Design Doc (Structured Rich PRD Plugin)
 
-> **planos** is a Claude Code plugin that makes the agent author plans, PRDs, and diff
-> reviews as a **structured block document** rendered as a rich, editable browser UI — the
+> **planos** is a Claude Code plugin that makes the agent author a **PRD** as a
+> **structured block document** rendered as a rich, editable browser UI — the
 > common ground between LLM-native serialization and human-native review.
 >
-> Status: **DESIGN — pre-implementation.** Authored in markdown deliberately; the tool does
-> not yet exist to bootstrap itself.
-> Distribution: **standalone plugin repo** (this repo — `esolutions.gr/planos`).
+> Status: **DESIGN.** Distribution: **standalone plugin repo** (this repo —
+> `esolutions.gr/planos`).
+
+> **⚠ M1 / ADR-0007 — PRD-only consolidation.** planos was reduced to a SINGLE
+> flow: **PRD**. The plan flow (the `ExitPlanMode`/`EnterPlanMode` roundtrip)
+> and the diff-review flow were **removed** (no ExitPlanMode/EnterPlanMode
+> hooks, no `diff` block kind, no `diff-review` document type). The PRD is
+> invoked by the `/planos-prd` command running `planos prd` via the CLI over
+> stdin — **NOT** via a Claude Code hook. Sections below that still describe
+> the plan-mode interception, the two-hook split, the diff-review mode, or the
+> v3 `diff` kind are **historical context** (kept to explain WHY the
+> single-flow shape was chosen); the authoritative current behaviour is
+> PRD-only. See `docs/adr/0007-consolidate-prd-only.md`.
 
 ---
 
@@ -97,16 +107,16 @@ plugin published from `apps/hook/`).
         agent revises structured doc, re-calls ExitPlanMode → loop
 ```
 
-**Three entry modes, one engine:**
+**One entry mode, one engine (ADR-0007 — PRD-only):**
 
 | Mode | Trigger | Hook vs command | Notes |
 |---|---|---|---|
-| **Plan** | Native plan mode | `ExitPlanMode` hook (auto) | The flagship loop above. |
-| **PRD** | `/planos-prd [topic]` slash command | Command → blocking CLI | Not plan-mode; richer block vocab; persists to a `prds/`-style dir. |
-| **Diff review** | `/planos-review [PR# \| git range]` | Command → blocking CLI | `gh`/`git` fetch → diff blocks; comment/accept/reject per hunk. |
+| **PRD** | `/planos-prd [topic]` slash command | Command → blocking CLI (`planos prd`, stdin) | Richer v2 block vocab; persists immutable revisions to a `prds/`-style dir. |
 
-All three share: block schema, SPA editor, local-server round-trip, structured feedback,
-structural diff. Only the *source* of the initial document and the *block subset* differ.
+The PRD flow uses: the block schema (v1∪v2), the SPA editor, the local-server
+round-trip, the structured feedback envelope, and the structural revision-diff.
+The plan-mode (`ExitPlanMode`/`EnterPlanMode`) and diff-review modes shown in
+the historical sections below were removed in M1.
 
 ---
 
@@ -118,7 +128,7 @@ expressive enough to be worth the structure, and stable across revisions.
 ```jsonc
 Document {
   schemaVersion: 1,
-  type: "plan" | "prd" | "diff-review",
+  type: "plan" | "prd",   // ADR-0007: "diff-review" removed; PRD uses "prd"
   id: string,            // stable across revisions — the revision chain key
   title: string,
   meta: { branch?, status: "draft"|"in-review"|"approved", createdAt, revision: int },
@@ -148,8 +158,8 @@ Block kinds (v2 — PRD + richer):
   table          { id, kind, columns: string[], rows: string[][] }
   diagram        { id, kind, mermaid: string }
 
-Block kinds (v3 — Diff review):
-  diff           { id, kind, path, hunks: Hunk[], comments: BlockComment[] }
+// Block kinds (v3 — Diff review): REMOVED in M1 (ADR-0007). The `diff` kind
+// and the `diff-review` document type no longer exist — planos is PRD-only.
 ```
 
 ### Feedback envelope (browser → agent)

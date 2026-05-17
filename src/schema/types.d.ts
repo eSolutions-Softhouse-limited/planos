@@ -3,8 +3,8 @@
  *
  * This file is the type-level mirror of the runtime validator in `validate.mjs`.
  * It documents the discriminated union exactly as specified in docs/design.md §4
- * (v1 core — Plan). v2/v3 kinds are intentionally NOT modeled here: v1 is the
- * only contract the validator enforces.
+ * (v1 core + v2 PRD kinds). M1 (ADR-0007) removed the v3 `diff` kind and the
+ * `diff-review` document type — planos is PRD-only.
  *
  * Zero runtime dependencies. ES modules. Pure type declarations.
  */
@@ -18,8 +18,8 @@ export type TaskStatus = "todo" | "doing" | "done" | "cut";
 /** Document-level workflow status. */
 export type DocStatus = "draft" | "in-review" | "approved";
 
-/** Document type. v1 implements `"plan"`; the others are reserved for later phases. */
-export type DocType = "plan" | "prd" | "diff-review";
+/** Document type. planos is PRD-only (ADR-0007); `"plan"` is kept for v2 docs. */
+export type DocType = "plan" | "prd";
 
 /**
  * Structural grouping header. `level` mirrors a markdown heading depth.
@@ -159,60 +159,7 @@ export interface DiagramBlock {
   mermaid: string;
 }
 
-// ---------------------------------------------------------------------------
-// v3 block kind (diff-review-scoped — design.md §4 lines 151-153). The runtime
-// mirror is `validate.mjs` (V3_KINDS + KIND_VALIDATORS.diff). v3 `diff` is
-// accepted ONLY in `type:"diff-review"` documents; a `type:"diff-review"`
-// document accepts v1∪v3 (NOT v2 PRD kinds — R7).
-// ---------------------------------------------------------------------------
-
-/** A single unified-diff line. `text` is the content WITHOUT the op char. */
-export interface DiffLine {
-  /** `" "` context | `"+"` added | `"-"` removed. */
-  op: " " | "+" | "-";
-  /** The line content without the leading op char; may be empty. */
-  text: string;
-}
-
-/** One `@@`-delimited hunk. `hunkId` is a stable opaque per-hunk anchor. */
-export interface Hunk {
-  /** The `@@ -a,b +c,d @@` line (may carry a section heading). */
-  header: string;
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  lines: DiffLine[];
-  /** Stable per-hunk anchor for accept/reject/comment (ADR-0001 recursively). */
-  hunkId: string;
-}
-
-/** A per-hunk (or file-level) review comment carrying a verdict (R5). */
-export interface BlockComment {
-  /** Stable opaque comment id. */
-  commentId: string;
-  /** The `Hunk.hunkId` this anchors to, or `null` for a file-level comment. */
-  hunkId: string | null;
-  text: string;
-  /** The per-hunk review verdict carried alongside the comment text. */
-  verdict: "accept" | "reject" | "comment";
-}
-
-/** A concrete file diff with per-hunk lines and per-hunk review comments. */
-export interface DiffBlock {
-  id: string;
-  kind: "diff";
-  path: string;
-  /** May be empty for a binary/rename stub (R6). */
-  hunks: Hunk[];
-  /** Per-hunk/file-level review comments; may be empty. */
-  comments: BlockComment[];
-  status?: "added" | "modified" | "deleted" | "renamed" | "binary";
-  /** Present only for a renamed file (the pre-rename path). */
-  oldPath?: string;
-}
-
-/** v1∪v2∪v3 discriminated union — discriminant is `kind`. */
+/** v1∪v2 discriminated union — discriminant is `kind`. */
 export type Block =
   | SectionBlock
   | ProseBlock
@@ -226,10 +173,9 @@ export type Block =
   | FileChangeBlock
   | CodeBlock
   | TableBlock
-  | DiagramBlock
-  | DiffBlock;
+  | DiagramBlock;
 
-/** Set of valid v1∪v2∪v3 `kind` discriminants. */
+/** Set of valid v1∪v2 `kind` discriminants. */
 export type BlockKind = Block["kind"];
 
 export interface DocumentMeta {

@@ -1,11 +1,12 @@
 /**
- * planos — PRD-mode round-trip handler (Phase 2 / Milestone P2).
+ * planos — PRD-mode round-trip handler (the SINGLE planos flow, ADR-0007).
  *
- * Contract: planos-phase2-plan.md §4 (entry path topology + AC-17
- * re-assertion), §6 (AC-P7, AC-P8, AC-P10 round-trip half, AC-P12), §7 P2,
- * Resolved Decisions (D4 = stdin handoff; D1 layout in src/prd/store.mjs).
+ * Contract: planos-phase2-plan.md §6 (AC-P7, AC-P8, AC-P10 round-trip half,
+ * AC-P12), Resolved Decisions (D4 = stdin handoff; D1 layout in
+ * src/prd/store.mjs). M1 (ADR-0007) removed the plan/diff-review flows; PRD
+ * is now the only round-trip.
  *
- * Topology (design.md §3 line 105 — command → blocking CLI, NOT a hook):
+ * Topology (design.md §3 — command → blocking CLI, NOT a hook):
  *
  *   /planos-prd interview + v2 authoring  (live-agent CLI surface — AC-17
  *   pre-server, allowed)                    runs BEFORE this handler boots
@@ -18,7 +19,7 @@
  *         base + the new revision number
  *      4. startServer() → real SPA + read-only /api/prd* (full chain) + the
  *         injectable browser opener + the SCRIPTED decisionProvider seam
- *         (exactly like handleExit so tests stay offline)
+ *         (so tests stay offline)
  *      5. BLOCK on decisionPromise
  *      6. APPROVE  → saveRevision (persist the new immutable revision) +
  *                    emit success JSON
@@ -27,14 +28,14 @@
  *      7. flush-then-exit-0 via the server's finish()
  *
  * AC-17 (RE-ASSERTED, not weakened): the blocking path
- *   bin/planos prd → src/hook/prd.mjs → src/server → src/schema → src/diff →
- *   src/prd/store.mjs
+ *   bin/planos prd → src/hook/prd.mjs → src/hook/prd-runtime.mjs →
+ *   src/server → src/schema → src/diff → src/prd/store.mjs
  * has ZERO network egress, ZERO agent spawn, ZERO agent-SDK import.
  * src/prd/store.mjs is filesystem-only (node:fs/node:path) — its fs writes are
  * explicitly in-scope-allowed (filesystem ≠ network/model, same boundary as
- * the openBrowserReal note in src/hook/exit.mjs). The browser opener is the
- * injectable seam (tests inject a no-op); the SCRIPTED decisionProvider seam
- * keeps the harness fully offline (no SPA, no /api/prd handlers).
+ * the openBrowserReal note in src/hook/prd-runtime.mjs). The browser opener is
+ * the injectable seam (tests inject a no-op); the SCRIPTED decisionProvider
+ * seam keeps the harness fully offline (no SPA, no /api/prd handlers).
  *
  * Zero runtime dependencies. ES module. No network, no model, no spawn.
  */
@@ -49,7 +50,7 @@ import {
   toPermissionRequestOutput,
   buildSpaHtml,
   openBrowserReal,
-} from './exit.mjs';
+} from './prd-runtime.mjs';
 import { loadLatest, saveRevision } from '../prd/store.mjs';
 
 // ---------------------------------------------------------------------------
@@ -149,8 +150,7 @@ export function buildPrdApiHandlers(doc, chain = []) {
 /**
  * Handle the `prd` subcommand — the command → blocking-CLI PRD round-trip.
  *
- * TWO modes, one engine — IDENTICAL seam shape to {@link handleExit} so the
- * harness drives it exactly like the plan loop:
+ * TWO modes, one engine — the harness drives the round-trip offline:
  *
  *   - SCRIPTED (harness, AC-P7/P8/P10/P12): a `decisionProvider` is injected.
  *     A minimal placeholder HTML is served, no `/api/prd*` handlers are
@@ -168,7 +168,7 @@ export function buildPrdApiHandlers(doc, chain = []) {
  * `doc.meta.revision`, incremented from the prior persisted revision); a
  * PRD-shaped success JSON is then emitted. On REVISE the standard
  * deny-message machinery ({@link buildDecision} → directive + (id,kind,title)
- * echo table + canonical JSON) is reused VERBATIM from the plan loop, so the
+ * echo table + canonical JSON) is reused VERBATIM, so the
  * baseRevision race guard (AC-P8) fires identically.
  *
  * @param {object} [options]
@@ -208,7 +208,7 @@ export async function handlePrd(options = {}) {
       : process.cwd();
 
   // SCRIPTED iff a decisionProvider is injected (harness). Real-SPA otherwise
-  // (production). The scripted seam mirrors handleExit verbatim.
+  // (production).
   const scripted = typeof decisionProvider === 'function';
 
   const openBrowser =
@@ -219,16 +219,16 @@ export async function handlePrd(options = {}) {
         : openBrowserReal;
 
   // 1. Read stdin and extract tool_input.plan (D4 = stdin handoff). readStdin
-  //    is the same production-hardened reader the ExitPlanMode hook uses
-  //    (./roundtrip.mjs) — NEVER rejects/throws/blocks indefinitely.
+  //    is the production-hardened shared reader (./roundtrip.mjs) — NEVER
+  //    rejects/throws/blocks indefinitely.
   const raw =
     typeof stdinText === 'string' ? stdinText : await readStdin(stdinOpts);
   const planText = extractPlan(raw);
 
   // 2. Parse/validate → canonical doc. A degraded PRD must stay type:"prd"
   //    (AC-P3 / D5) so we thread type:"prd" into the degrade overrides unless
-  //    the caller pinned one explicitly. planToDocument is the SAME pure
-  //    function the plan loop uses (validate-as-is, else prose-degrade).
+  //    the caller pinned one explicitly. planToDocument is the shared pure
+  //    function (validate-as-is, else prose-degrade).
   const prdDegradeOpts = { type: 'prd', ...degradeOpts };
   const authored = planToDocument(planText, prdDegradeOpts);
 
@@ -281,15 +281,14 @@ export async function handlePrd(options = {}) {
   // 5. BLOCK on the decision promise.
   const resolved = await decisionPromise;
 
-  // Reuse the plan-loop decision machinery VERBATIM: buildDecision applies the
-  // baseRevision race guard (AC-P8) and serialises any FeedbackEnvelope into
-  // the deny message exactly as the ExitPlanMode loop does. No envelope →
-  // backward-compatible directive + echo table + canonical JSON.
+  // Reuse the decision machinery: buildDecision applies the baseRevision race
+  // guard (AC-P8) and serialises any FeedbackEnvelope into the deny message.
+  // No envelope → backward-compatible directive + echo table + canonical JSON.
   const decision = buildDecision(doc, resolved);
 
   // 6. APPROVE → persist a NEW immutable revision (append-only) + emit a
   //    PRD-shaped success JSON. REVISE → emit the deny/revise PermissionRequest
-  //    output (same shape as the plan loop). Persistence is pure node:fs.
+  //    output. Persistence is pure node:fs.
   let output;
   if (decision.behavior === 'deny') {
     output = toPermissionRequestOutput(decision);

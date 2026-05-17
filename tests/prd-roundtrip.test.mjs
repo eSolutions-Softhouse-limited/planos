@@ -311,8 +311,8 @@ await test('AC-P7: scripted revise → buildReviseMessage output (directive + ec
     const msg = decision.message;
     assert.ok(typeof msg === 'string' && msg.length > 0, 'deny carries a message');
 
-    // (a) Tuned directive preamble (reused verbatim from the plan loop).
-    assert.ok(msg.includes('YOUR PLAN WAS NOT APPROVED'), 'tuned directive preamble present');
+    // (a) Tuned directive preamble (PRD-only flow — ADR-0007).
+    assert.ok(msg.includes('YOUR PRD WAS NOT APPROVED'), 'tuned directive preamble present');
     // (b) Reviewer feedback threaded.
     assert.ok(msg.includes('Scripted PRD forced-revise.'), 'reviewer feedback threaded');
     // (c) (id,kind,title) echo table — every block id + kind.

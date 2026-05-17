@@ -554,47 +554,28 @@ export function walkImportGraph(roots) {
 }
 
 /**
- * The canonical AC-17 root set: the blocking-path entrypoint (`bin/planos`),
- * the exit hook, the schema modules, and the diff modules. Resolved relative
- * to this harness file so callers need not know the layout.
+ * The canonical AC-17 root set for the SINGLE planos flow — PRD (ADR-0007).
+ * Resolved relative to this harness file so callers need not know the layout.
+ *
+ * M1 (ADR-0007) removed the plan (ExitPlanMode/EnterPlanMode) and diff-review
+ * flows. The only blocking round-trip left is `bin/planos prd`. The audited
+ * roots are therefore: the dispatcher entrypoint (`bin/planos`), the PRD
+ * handler + its extracted runtime helpers, the shared stdin handoff, the PRD
+ * persistence store, the schema modules, and the structural diff engine the
+ * PRD revision history uses.
  *
  * `bin/planos` is included as the true entrypoint: its dispatcher dynamically
- * imports `enter.mjs`/`exit.mjs`/`prd.mjs` via the documented
- * `resolve(__dirname,'<lit>')` unwrap, so the walk follows those edges as a
- * real graph walk (not a grep).
- *
- * Phase 2 / Milestone P5 (AC-P15): the `bin/planos prd` blocking entrypoint and
- * its transitive set are added EXPLICITLY here — `src/hook/prd.mjs`,
- * `src/hook/roundtrip.mjs`, `src/prd/store.mjs`. The `bin/planos` dispatcher
- * already reaches `prd.mjs` via the SAME provable `resolve(__dirname,'<lit>')`
- * pattern it uses for `exit.mjs` (the `prd` case in plugin/bin/planos), so the
- * real graph walk already follows that edge; listing the prd roots explicitly
- * (mirroring how `src/hook/exit.mjs` is listed alongside `bin/planos`) makes the
- * AC-17 re-assertion independent of the dispatcher edge and pins the prd
- * transitive closure into the audited set directly. `src/prd/store.mjs`'s
- * `node:fs` writes are explicitly in-scope-allowed — filesystem ≠
- * network/model, the SAME boundary as the documented browser-opener note in
- * `src/hook/exit.mjs` (node:child_process is the allowed AC-17 boundary, not a
- * forbidden specifier; node:fs likewise is allowed and never traversed as a
- * forbidden module). The walk MUST remain VERDICT CLEAN with these added.
- *
- * Phase 3 / Milestone R5 (AC-R13): the `bin/planos review` blocking entrypoint
- * and its transitive set are added EXPLICITLY here too — `src/hook/review.mjs`
- * + `src/review/ingest.mjs`. The reasoning is VERBATIM the Phase-2 P5 argument
- * above: the `bin/planos` dispatcher already reaches `review.mjs` via the SAME
- * provable `resolve(__dirname,'<lit>')` unwrap it uses for `exit.mjs`/`prd.mjs`
- * (the `review` case in plugin/bin/planos), so the real graph walk already
- * follows that edge; listing the review roots explicitly (mirroring how
- * `src/hook/prd.mjs` is listed alongside `bin/planos`) makes the AC-17
- * re-assertion dispatcher-independent and pins the review transitive closure
- * into the audited set directly. `src/review/ingest.mjs` is a PURE text→blocks
- * unified-diff parser with ZERO imports (R1 Option A — the `gh`/`git`
- * subprocess runs in the pre-server CLI agent loop, NEVER in this blocking
- * path), so it joins the audited set as a pure-logic leaf exactly like
- * `src/diff/structural.mjs`. There is deliberately NO `src/review/store.mjs`
- * root: R2 = ephemeral, so there is no review persistence module and no
- * filesystem-write boundary to add for the review path. The walk MUST remain
- * VERDICT CLEAN with these added.
+ * imports `prd.mjs` via the documented `resolve(__dirname,'<lit>')` unwrap, so
+ * the walk follows that edge as a real graph walk (not a grep). The prd roots
+ * are ALSO listed explicitly so the AC-17 re-assertion is independent of the
+ * dispatcher edge and pins the prd transitive closure into the audited set
+ * directly. `src/prd/store.mjs`'s `node:fs` writes are explicitly
+ * in-scope-allowed — filesystem ≠ network/model, the SAME boundary as the
+ * documented browser-opener note in `src/hook/prd-runtime.mjs`
+ * (node:child_process is the allowed AC-17 boundary, not a forbidden
+ * specifier; node:fs likewise is allowed and never traversed as a forbidden
+ * module). `src/diff/structural.mjs` is a PURE zero-import structural-diff
+ * engine joined as a pure-logic leaf. The walk MUST remain VERDICT CLEAN.
  *
  * @returns {string[]} absolute root module paths
  */
@@ -603,30 +584,22 @@ export function ac17Roots() {
   const repo = resolve(here, '../..');
   return [
     resolve(repo, 'plugin/bin/planos'),
-    resolve(repo, 'src/hook/exit.mjs'),
-    // Phase 2 (AC-P15) — the bin/planos prd blocking entrypoint + transitive
-    // set. bin/planos already dynamically imports prd.mjs via the provable
-    // resolve(__dirname,'<lit>') unwrap (same as exit.mjs); these explicit
-    // roots make the AC-17 re-assertion dispatcher-independent.
+    // The bin/planos prd blocking entrypoint + transitive set. bin/planos
+    // already dynamically imports prd.mjs via the provable
+    // resolve(__dirname,'<lit>') unwrap; these explicit roots make the AC-17
+    // re-assertion dispatcher-independent. prd-runtime.mjs holds the pure
+    // model-free helpers (plan→doc degrade, decision machinery, SPA HTML, the
+    // documented child_process browser-opener AC-17 boundary).
     resolve(repo, 'src/hook/prd.mjs'),
+    resolve(repo, 'src/hook/prd-runtime.mjs'),
     resolve(repo, 'src/hook/roundtrip.mjs'),
     resolve(repo, 'src/prd/store.mjs'),
-    // Phase 3 (AC-R13) — the bin/planos review blocking entrypoint + its
-    // transitive set. bin/planos already dynamically imports review.mjs via the
-    // SAME provable resolve(__dirname,'<lit>') unwrap as exit.mjs/prd.mjs; these
-    // explicit roots make the AC-17 re-assertion dispatcher-independent.
-    // src/review/ingest.mjs is the PURE zero-import unified-diff parser (R1
-    // Option A — gh/git run pre-server, NEVER in this blocking path). NO store
-    // root: R2 = ephemeral, there is no src/review/store.mjs.
-    resolve(repo, 'src/hook/review.mjs'),
-    resolve(repo, 'src/review/ingest.mjs'),
     resolve(repo, 'src/schema/index.mjs'),
     resolve(repo, 'src/schema/validate.mjs'),
     resolve(repo, 'src/schema/fallback.mjs'),
     resolve(repo, 'src/schema/envelope.mjs'),
     resolve(repo, 'src/schema/id-strategy.mjs'),
     resolve(repo, 'src/diff/structural.mjs'),
-    resolve(repo, 'src/diff/reanchor.mjs'),
   ];
 }
 

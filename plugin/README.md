@@ -1,9 +1,9 @@
 # planos (Claude Code plugin)
 
-Structured-block **plan / PRD / diff-review** plugin for Claude Code. The agent
-authors plans, PRDs, and code reviews as a structured block document, rendered as
-a rich, editable, fully offline browser UI with a local-server round-trip.
-Markdown is an *export format*, not the source of truth.
+Structured-block **PRD** plugin for Claude Code. The agent authors a PRD as a
+structured block document, rendered as a rich, editable, fully offline browser
+UI with a local-server round-trip. Markdown is an *export format*, not the
+source of truth.
 
 **Fully offline · zero runtime dependencies · single committed `dist/index.html`.**
 
@@ -25,16 +25,16 @@ claude --plugin-dir ./plugin
 No build step or `npm install` is needed to use the plugin: the editor SPA is
 pre-built and committed at `dist/index.html`.
 
-## Entry modes
+## Entry mode
+
+planos is a **single flow — PRD** (ADR-0007).
 
 | Mode | Trigger |
 |---|---|
-| **Plan** | Native plan mode → `ExitPlanMode` hook (automatic) |
-| **PRD** | `/planos-prd [topic]` slash command |
-| **Diff review** | `/planos-review [PR# \| git range]` slash command |
+| **PRD** | `/planos-prd [topic]` slash command → `planos prd` (blocking CLI, stdin) |
 
-`/planos-plan` starts the optional Socratic interview that authors the initial
-plan before plan mode.
+There is **no `ExitPlanMode`/`EnterPlanMode` hook** — the PRD is invoked by the
+command running the CLI directly.
 
 **Markdown export:** `bin/planos export < document.json > document.md` — out of
 the blocking path by construction (no server, no round-trip, no block). Export is
@@ -44,9 +44,10 @@ and PDF via the browser's `window.print()`.
 ## Guarantees
 
 - **AC-17 — no model / network / agent spawn in the blocking path.** The
-  blocking review round-trip (`bin/planos exit|prd|review` → `src/hook/*` →
-  `src/server/` → `src/schema/` → `src/diff/`) is model-free, makes no network
-  egress, and spawns no agent. Enforced by `tests/ac17-invariant.test.mjs`.
+  blocking PRD round-trip (`bin/planos prd` → `src/hook/prd.mjs` →
+  `src/hook/prd-runtime.mjs` → `src/server/` → `src/schema/` → `src/diff/` →
+  `src/prd/store.mjs`) is model-free, makes no network egress, and spawns no
+  agent. Enforced by `tests/ac17-invariant.test.mjs`.
 - **Fully offline.** The full loop works with no external network; the SPA is a
   single self-contained HTML blob.
 - **Zero runtime dependencies.** `package.json` declares no runtime

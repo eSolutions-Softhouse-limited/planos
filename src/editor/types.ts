@@ -11,7 +11,7 @@
 export type LMH = 'L' | 'M' | 'H';
 export type TaskStatus = 'todo' | 'doing' | 'done' | 'cut';
 export type DocStatus = 'draft' | 'in-review' | 'approved';
-export type DocType = 'plan' | 'prd' | 'diff-review';
+export type DocType = 'plan' | 'prd';
 
 export interface SectionBlock {
   id: string;
@@ -130,44 +130,6 @@ export interface DiagramBlock {
   mermaid: string;
 }
 
-// ---------------------------------------------------------------------------
-// v3 block kind (diff-review-scoped — design.md §4). Mirror of
-// src/schema/types.d.ts; keep both in sync. Runtime mirror is
-// src/schema/validate.mjs (V3_KINDS + KIND_VALIDATORS.diff).
-// ---------------------------------------------------------------------------
-
-export interface DiffLine {
-  op: ' ' | '+' | '-';
-  text: string;
-}
-
-export interface Hunk {
-  header: string;
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  lines: DiffLine[];
-  hunkId: string;
-}
-
-export interface BlockComment {
-  commentId: string;
-  hunkId: string | null;
-  text: string;
-  verdict: 'accept' | 'reject' | 'comment';
-}
-
-export interface DiffBlock {
-  id: string;
-  kind: 'diff';
-  path: string;
-  hunks: Hunk[];
-  comments: BlockComment[];
-  status?: 'added' | 'modified' | 'deleted' | 'renamed' | 'binary';
-  oldPath?: string;
-}
-
 export type Block =
   | SectionBlock
   | ProseBlock
@@ -181,8 +143,7 @@ export type Block =
   | FileChangeBlock
   | CodeBlock
   | TableBlock
-  | DiagramBlock
-  | DiffBlock;
+  | DiagramBlock;
 
 export type BlockKind = Block['kind'];
 
@@ -212,17 +173,6 @@ export interface PlanDocument {
  * envelope-emission step (US-017) consumes exactly this; nothing here knows
  * about serialization, `documentId`, or `baseRevision`.
  */
-/**
- * One per-hunk review entry (R5, hunk-level only). `verdict` is the tri-state
- * accept/reject/comment toggle; `text` the optional per-hunk comment. Mirrors
- * the persisted `BlockComment{verdict}` shape minus the minted `commentId`
- * (the envelope builder mints that deterministically — §3.4).
- */
-export interface HunkReview {
-  verdict: 'accept' | 'reject' | 'comment';
-  text: string;
-}
-
 export interface EditorState {
   /** blockId → shallow patch of changed fields (task edits). */
   edits: Record<string, Partial<TaskBlock>>;
@@ -230,13 +180,6 @@ export interface EditorState {
   comments: Record<string, string>;
   /** blockId → answer text (openQuestion). */
   answers: Record<string, string>;
-  /**
-   * blockId → (hunkId → per-hunk review). The v3 `diff` per-hunk
-   * accept/reject/comment surface (R5, hunk-level only). Serialized into an
-   * `editBlock` op whose patch updates that `diff` block's `comments[]` with a
-   * `BlockComment{commentId, hunkId, text, verdict}` — NO new envelope op.
-   */
-  reviewVerdicts?: Record<string, Record<string, HunkReview>>;
   /** Optional document-wide comment. */
   globalComment?: string;
 }

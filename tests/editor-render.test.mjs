@@ -179,46 +179,10 @@ test('AC-P14 offline mermaid is bundled (no CDN / network at runtime)', () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Phase 3 / Milestone R4 — v3 `diff` renderer + per-hunk review affordance
-// (AC-R11). Non-visual: assert the bundled DiffView discriminant + affordance
-// strings survive minification (the [M] visual demo is the manual smoke).
-// ---------------------------------------------------------------------------
-
-test('AC-R11 bundle contains the v3 diff renderer + per-hunk review affordance', () => {
-  // The dispatcher switches on the `diff` discriminant; the minifier preserves
-  // case-label / JSX string literals.
-  assert.ok(
-    html.includes('"diff"') || html.includes("'diff'") || html.includes('diff'),
-    'bundle missing the v3 diff kind discriminant'
-  );
-  // Per-hunk review affordance strings (R5, hunk-level only) survive verbatim.
-  // Static string fragments only — the `${v} hunk ${hunkId}` aria-label is
-  // built at runtime so only the ` hunk ` literal + the tri-state verdict
-  // literals survive minification (the verdict values come from a literal
-  // array, not a renamed identifier).
-  for (const needle of [
-    'binary file — no textual diff', // R6 empty-hunks binary stub
-    'Per-hunk comment for the agent', // per-hunk comment box placeholder
-    ' hunk ', // accept/reject/comment aria-label static fragment
-    '"accept"', // tri-state verdict literal
-    '"reject"',
-  ]) {
-    assert.ok(
-      html.includes(needle),
-      `bundle missing diff renderer affordance: ${needle}`
-    );
-  }
-  // The `_never` exhaustiveness guard at blocks.tsx is satisfied by a REAL
-  // render (not null): the JSON.stringify(_never...) fallback only fires for
-  // an unhandled kind. With `case 'diff':` present + a real DiffView, the
-  // dispatcher is exhaustive over all 14 kinds and the build (tsc-gated)
-  // succeeds — proven by this bundle existing + the drift check below.
-  assert.ok(
-    html.includes('renamed') && html.includes('hunkId'),
-    'bundle missing diff status (renamed) / hunk-anchor wiring'
-  );
-});
+// AC-R11 (the bundled v3 `diff` renderer + per-hunk review affordance
+// assertion) was deleted in M1 (ADR-0007): the diff-review flow and the v3
+// `diff` kind were removed — planos is PRD-only. The v1/v2 PRD renderer
+// coverage above is unchanged.
 
 // ---------------------------------------------------------------------------
 // Phase 4 / Milestone Q2 — theme token layer (AC-Q2). Non-visual: assert the

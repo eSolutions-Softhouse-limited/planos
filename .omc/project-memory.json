@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos\necho \"=== roundtrip.mjs diff vs HEAD ===\" ; git -c core.pager=cat diff HEAD -- src/hook/roundtrip.mjs | head -40\necho \"=== plugin/bin/planos diff size vs HEAD ===\" ; git -c core.pager=cat diff --stat HEAD -- plugin/bin/planos\necho \"=== is build:bin deterministic? rebuild twice, compare ===\" \nnpm run build:bin >/dev/null 2>&1; cp plugin/bin/planos /tmp/planos.a\nnpm run build:bin >/dev/null 2>&1; cp plugin/bin/planos /tmp/planos.b\ncmp /tmp/planos.a /tmp/planos.b && echo \"deterministic across rebuilds\" || echo \"NON-DETERMINISTIC ⚠\"\necho \"=== rebuilt vs committed HEAD ===\" \ngit -c core.pager=cat show HEAD:plugin/bin/planos > /tmp/planos.head 2>/dev/null\ncmp /tmp/planos.head plugin/bin/planos && echo \"rebuilt == committed HEAD (clean)\" || echo \"rebuilt != committed HEAD ⚠ (drift)\"",
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; echo \"VALID_DOC uses:\"; grep -n \"VALID_DOC\" tests/ac17-invariant.test.mjs; echo \"VALID_REVIEW_DOC uses:\"; grep -n \"VALID_REVIEW_DOC\" tests/ac17-invariant.test.mjs; echo \"require uses:\"; grep -n \"\\brequire\\b\" tests/ac17-invariant.test.mjs; echo \"--- tsc/eslint check ---\"; npx tsc --noEmit 2>&1 | grep -i \"ac17\" | head",
     "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
     "lintCommand": null,
     "devCommand": null,
@@ -136,20 +136,20 @@
   "hotPaths": [
     {
       "path": "src/schema/validate.mjs",
-      "accessCount": 34,
-      "lastAccessed": 1778969550307,
+      "accessCount": 46,
+      "lastAccessed": 1779011697607,
       "type": "file"
     },
     {
       "path": "src/hook/exit.mjs",
-      "accessCount": 22,
-      "lastAccessed": 1778970743144,
+      "accessCount": 24,
+      "lastAccessed": 1779011154447,
       "type": "file"
     },
     {
       "path": "docs/design.md",
-      "accessCount": 7,
-      "lastAccessed": 1778940437549,
+      "accessCount": 14,
+      "lastAccessed": 1779012528158,
       "type": "file"
     },
     {
@@ -166,26 +166,26 @@
     },
     {
       "path": "src/schema/id-strategy.mjs",
+      "accessCount": 6,
+      "lastAccessed": 1779011170269,
+      "type": "file"
+    },
+    {
+      "path": "src/server/index.mjs",
       "accessCount": 5,
-      "lastAccessed": 1778926524400,
+      "lastAccessed": 1779010558033,
+      "type": "file"
+    },
+    {
+      "path": "src/schema/index.mjs",
+      "accessCount": 5,
+      "lastAccessed": 1779011164394,
       "type": "file"
     },
     {
       "path": "tests/fixtures/fixture-format.md",
       "accessCount": 4,
       "lastAccessed": 1778923303311,
-      "type": "file"
-    },
-    {
-      "path": "src/schema/index.mjs",
-      "accessCount": 4,
-      "lastAccessed": 1778926523120,
-      "type": "file"
-    },
-    {
-      "path": "src/server/index.mjs",
-      "accessCount": 4,
-      "lastAccessed": 1778970744117,
       "type": "file"
     },
     {

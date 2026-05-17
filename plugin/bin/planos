@@ -1,15 +1,281 @@
 #!/usr/bin/env node
-var __defProp = Object.defineProperty;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
+
+// src/server/index.mjs
+import { createServer } from "node:http";
+var MAX_PORT_RETRIES = 20;
+function bindFreePort(server) {
+  return new Promise((resolve3, reject) => {
+    let attempts = 0;
+    function tryBind() {
+      attempts += 1;
+      server.listen(0, "127.0.0.1", () => {
+        const { port } = server.address();
+        resolve3(port);
+      });
+      server.once("error", (err) => {
+        if (err.code === "EADDRINUSE" && attempts < MAX_PORT_RETRIES) {
+          server.removeAllListeners("error");
+          tryBind();
+        } else {
+          reject(err);
+        }
+      });
+    }
+    tryBind();
+  });
+}
+function readBody(req) {
+  return new Promise((resolve3, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve3(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+function flushStdout(text) {
+  return new Promise((resolve3, reject) => {
+    const flushed = process.stdout.write(text, "utf8", (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      setImmediate(resolve3);
+    });
+    if (flushed) {
+    }
+  });
+}
+async function startServer({
+  onReady = () => {
+  },
+  serveHtml = "<html><body></body></html>",
+  apiHandlers = {}
+} = {}) {
+  let resolveDecision;
+  const decisionPromise = new Promise((res) => {
+    resolveDecision = res;
+  });
+  const server = createServer(async (req, res) => {
+    const { method, url: url2 } = req;
+    if (method === "GET" && url2 === "/") {
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": Buffer.byteLength(serveHtml)
+      });
+      res.end(serveHtml);
+      return;
+    }
+    if (method === "POST" && url2 === "/api/approve") {
+      try {
+        const body = await readBody(req);
+        const payload = body ? JSON.parse(body) : {};
+        const decision = { behavior: "allow", ...payload };
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        resolveDecision(decision);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: String(err) }));
+      }
+      return;
+    }
+    if (method === "POST" && url2 === "/api/deny") {
+      try {
+        const body = await readBody(req);
+        const payload = body ? JSON.parse(body) : {};
+        const decision = { behavior: "deny", ...payload };
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        resolveDecision(decision);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: String(err) }));
+      }
+      return;
+    }
+    {
+      const pathname = (url2 || "").split("?")[0];
+      const handler = apiHandlers[`${method} ${pathname}`];
+      if (typeof handler === "function") {
+        try {
+          const out = handler(req) || {};
+          const status = typeof out.status === "number" ? out.status : 200;
+          if (out.json !== void 0) {
+            const payload = JSON.stringify(out.json);
+            res.writeHead(status, {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(payload)
+            });
+            res.end(payload);
+          } else {
+            const text = typeof out.body === "string" ? out.body : "";
+            res.writeHead(status, {
+              "Content-Type": out.contentType || "text/plain; charset=utf-8",
+              "Content-Length": Buffer.byteLength(text)
+            });
+            res.end(text);
+          }
+        } catch (err) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: String(err) }));
+        }
+        return;
+      }
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "not found" }));
+  });
+  const port = await bindFreePort(server);
+  const url = `http://127.0.0.1:${port}`;
+  onReady(url);
+  async function finish(decision) {
+    await flushStdout(JSON.stringify(decision));
+    server.close();
+    process.exit(0);
+  }
+  return { decisionPromise, server, finish };
+}
+
+// src/hook/roundtrip.mjs
+import { readFileSync } from "node:fs";
+var MAX_STDIN_BYTES = 16 * 1024 * 1024;
+var STDIN_TIMEOUT_MS = 30 * 1e3;
+function readStdin(opts = {}) {
+  const timeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs >= 0 ? opts.timeoutMs : STDIN_TIMEOUT_MS;
+  const maxBytes = typeof opts.maxBytes === "number" && opts.maxBytes > 0 ? opts.maxBytes : MAX_STDIN_BYTES;
+  const docFile = process.env.PLANOS_DOC_FILE;
+  if (typeof docFile === "string" && docFile.trim() !== "") {
+    try {
+      const buf = readFileSync(docFile.trim());
+      const text = buf.length > maxBytes ? buf.subarray(0, maxBytes).toString("utf8") : buf.toString("utf8");
+      return Promise.resolve(text);
+    } catch {
+    }
+  }
+  return new Promise((resolve3) => {
+    const chunks = [];
+    let total = 0;
+    let truncated = false;
+    let settled = false;
+    const stdin = process.stdin;
+    let timer = null;
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      stdin.removeListener("data", onData);
+      stdin.removeListener("end", onEnd);
+      stdin.removeListener("error", onError);
+      try {
+        stdin.pause();
+      } catch {
+      }
+    };
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      let text = "";
+      try {
+        text = Buffer.concat(chunks).toString("utf8");
+      } catch {
+        text = "";
+      }
+      resolve3(text);
+    };
+    const onData = (chunk) => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      if (truncated) return;
+      if (total + buf.length > maxBytes) {
+        const room = Math.max(0, maxBytes - total);
+        if (room > 0) {
+          chunks.push(buf.subarray(0, room));
+          total += room;
+        }
+        truncated = true;
+        settle();
+        return;
+      }
+      chunks.push(buf);
+      total += buf.length;
+    };
+    const onEnd = () => settle();
+    const onError = () => settle();
+    stdin.on("data", onData);
+    stdin.on("end", onEnd);
+    stdin.on("error", onError);
+    if (timeoutMs > 0) {
+      timer = setTimeout(settle, timeoutMs);
+      if (timer && typeof timer.unref === "function") timer.unref();
+    }
+    try {
+      stdin.resume();
+    } catch {
+      settle();
+    }
+  });
+}
+function extractPlan(raw) {
+  if (typeof raw !== "string" || raw.trim().length === 0) return "";
+  let hookJson;
+  try {
+    hookJson = JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+  const plan = hookJson && typeof hookJson === "object" && hookJson.tool_input && typeof hookJson.tool_input === "object" ? hookJson.tool_input.plan : void 0;
+  if (typeof plan === "string") return plan;
+  if (hookJson && typeof hookJson === "object" && hookJson.schemaVersion === 1 && typeof hookJson.type === "string" && Array.isArray(hookJson.blocks)) {
+    return raw;
+  }
+  if (plan === void 0 || plan === null) return "";
+  try {
+    const s = JSON.stringify(plan);
+    return typeof s === "string" ? s : String(plan);
+  } catch {
+    try {
+      return String(plan);
+    } catch {
+      return "";
+    }
+  }
+}
+
+// src/hook/prd-runtime.mjs
+import { readFileSync as readFileSync2, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { spawn } from "node:child_process";
 
 // src/schema/validate.mjs
+var V1_KINDS = Object.freeze([
+  "section",
+  "prose",
+  "objective",
+  "task",
+  "decision",
+  "risk",
+  "openQuestion"
+]);
+var V2_KINDS = Object.freeze([
+  "phase",
+  "tradeoff",
+  "fileChange",
+  "code",
+  "table",
+  "diagram"
+]);
+var PRD_KIND_LIST = V1_KINDS.concat(V2_KINDS).join("|");
+var FILE_CHANGE_ACTIONS = Object.freeze(["add", "modify", "delete"]);
+var DOC_STATUS = Object.freeze(["draft", "in-review", "approved"]);
+var TASK_STATUS = Object.freeze(["todo", "doing", "done", "cut"]);
+var LMH = Object.freeze(["L", "M", "H"]);
+var DOC_TYPES = Object.freeze(["plan", "prd"]);
+var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isString = (v) => typeof v === "string";
+var isNonEmptyString = (v) => typeof v === "string" && v.length > 0;
+var isInteger = (v) => typeof v === "number" && Number.isInteger(v);
 function show(v) {
   if (typeof v === "string") return `'${v}'`;
   if (v === void 0) return "undefined";
@@ -72,101 +338,310 @@ function checkNumber(holder, key, path, errors) {
   }
   return true;
 }
-function requireInteger(holder, key, path, errors, { min = null } = {}) {
-  const v = holder[key];
-  if (!isInteger(v)) {
-    errors.push(
-      `${path}.${key} is required and must be an integer but is ${show(v)}`
-    );
-    return false;
-  }
-  if (min !== null && v < min) {
-    errors.push(
-      `${path}.${key} must be an integer >= ${min} but is ${show(v)}`
-    );
-    return false;
-  }
-  return true;
-}
-function validateHunk(h, path, errors) {
-  if (!isObject(h)) {
-    errors.push(
-      `${path} must be an object {header,oldStart,oldLines,newStart,newLines,lines,hunkId} but is ${show(
-        h
-      )}`
-    );
-    return;
-  }
-  requireString(h, "header", path, errors);
-  requireInteger(h, "oldStart", path, errors);
-  requireInteger(h, "oldLines", path, errors, { min: 0 });
-  requireInteger(h, "newStart", path, errors);
-  requireInteger(h, "newLines", path, errors, { min: 0 });
-  if (!Array.isArray(h.lines)) {
-    errors.push(
-      `${path} (Hunk) missing required field 'lines' (DiffLine[]) — got ${show(
-        h.lines
-      )}`
-    );
-  } else {
-    for (let i = 0; i < h.lines.length; i++) {
-      validateDiffLine(h.lines[i], `${path}.lines[${i}]`, errors);
+var KIND_VALIDATORS = {
+  section(b, path, errors) {
+    requireString(b, "title", path, errors);
+    if (!isInteger(b.level)) {
+      errors.push(
+        `${path} (section '${b.title ?? ""}') field 'level' must be an integer but is ${show(
+          b.level
+        )}`
+      );
     }
-  }
-  if (!isNonEmptyString(h.hunkId)) {
-    errors.push(
-      `${path}.hunkId is required and must be a non-empty string (the stable per-hunk anchor) but is ${show(
-        h.hunkId
-      )}`
+    if (b.collapsed !== void 0 && typeof b.collapsed !== "boolean") {
+      errors.push(
+        `${path} (section) optional field 'collapsed' must be a boolean when present but is ${show(
+          b.collapsed
+        )}`
+      );
+    }
+  },
+  prose(b, path, errors) {
+    if (!isString(b.md)) {
+      errors.push(
+        `${path} (prose) missing required field 'md' (string) — got ${show(
+          b.md
+        )}`
+      );
+    }
+  },
+  objective(b, path, errors) {
+    requireString(b, "text", path, errors);
+    if (b.successCriteria === void 0) {
+      errors.push(
+        `${path} (objective) missing required field 'successCriteria' (string[])`
+      );
+    } else {
+      checkStringArray(
+        b.successCriteria,
+        `${path}.successCriteria`,
+        "objective.successCriteria",
+        errors
+      );
+    }
+  },
+  task(b, path, errors) {
+    const title = isString(b.title) ? b.title : "";
+    requireString(b, "title", path, errors);
+    if (b.detail !== void 0 && !isString(b.detail)) {
+      errors.push(
+        `${path} (task '${title}') optional field 'detail' must be a string when present but is ${show(
+          b.detail
+        )}`
+      );
+    }
+    if (b.status === void 0) {
+      errors.push(
+        `${path} (task '${title}') missing required field 'status' (one of ${TASK_STATUS.join(
+          "|"
+        )})`
+      );
+    } else if (!TASK_STATUS.includes(b.status)) {
+      errors.push(
+        `${path}.status ${show(
+          b.status
+        )} is not a valid task status (expected one of ${TASK_STATUS.join("|")})`
+      );
+    }
+    if (b.deps === void 0) {
+      errors.push(
+        `${path} (task '${title}') missing required field 'deps' (id[] — string[] of block ids)`
+      );
+    } else {
+      checkStringArray(b.deps, `${path}.deps`, "task.deps", errors);
+    }
+    if (b.acceptance === void 0) {
+      errors.push(
+        `${path} (task '${title}') missing required field 'acceptance' (string[])`
+      );
+    } else {
+      checkStringArray(
+        b.acceptance,
+        `${path}.acceptance`,
+        "task.acceptance",
+        errors
+      );
+    }
+    if (b.estimate !== void 0 && !isString(b.estimate)) {
+      errors.push(
+        `${path} (task '${title}') optional field 'estimate' must be a string when present but is ${show(
+          b.estimate
+        )}`
+      );
+    }
+  },
+  decision(b, path, errors) {
+    requireString(b, "question", path, errors);
+    if (!Array.isArray(b.options)) {
+      errors.push(
+        `${path} (decision) missing required field 'options' ({label,pros?,cons?}[]) — got ${show(
+          b.options
+        )}`
+      );
+    } else {
+      if (b.options.length === 0) {
+        errors.push(
+          `${path}.options (decision) must contain at least one option`
+        );
+      }
+      for (let i = 0; i < b.options.length; i++) {
+        const opt = b.options[i];
+        const optPath = `${path}.options[${i}]`;
+        if (!isObject(opt)) {
+          errors.push(`${optPath} must be an object {label,pros?,cons?} but is ${show(opt)}`);
+          continue;
+        }
+        if (!isNonEmptyString(opt.label)) {
+          errors.push(
+            `${optPath}.label is required and must be a non-empty string but is ${show(
+              opt.label
+            )}`
+          );
+        }
+        if (opt.pros !== void 0) {
+          checkStringArray(opt.pros, `${optPath}.pros`, "decision option pros", errors);
+        }
+        if (opt.cons !== void 0) {
+          checkStringArray(opt.cons, `${optPath}.cons`, "decision option cons", errors);
+        }
+      }
+    }
+    if (b.chosen !== void 0 && !isString(b.chosen)) {
+      errors.push(
+        `${path} (decision) optional field 'chosen' must be a string (an option label) when present but is ${show(
+          b.chosen
+        )}`
+      );
+    }
+    if (b.rationale !== void 0 && !isString(b.rationale)) {
+      errors.push(
+        `${path} (decision) optional field 'rationale' must be a string when present but is ${show(
+          b.rationale
+        )}`
+      );
+    }
+  },
+  risk(b, path, errors) {
+    requireString(b, "description", path, errors);
+    if (b.likelihood === void 0) {
+      errors.push(
+        `${path} (risk) missing required field 'likelihood' (one of ${LMH.join(
+          "|"
+        )})`
+      );
+    } else if (!LMH.includes(b.likelihood)) {
+      errors.push(
+        `${path}.likelihood ${show(
+          b.likelihood
+        )} is not a valid value (expected one of ${LMH.join("|")})`
+      );
+    }
+    if (b.impact === void 0) {
+      errors.push(
+        `${path} (risk) missing required field 'impact' (one of ${LMH.join(
+          "|"
+        )})`
+      );
+    } else if (!LMH.includes(b.impact)) {
+      errors.push(
+        `${path}.impact ${show(
+          b.impact
+        )} is not a valid value (expected one of ${LMH.join("|")})`
+      );
+    }
+    requireString(b, "mitigation", path, errors);
+  },
+  openQuestion(b, path, errors) {
+    requireString(b, "question", path, errors);
+    if (b.answer !== void 0 && !isString(b.answer)) {
+      errors.push(
+        `${path} (openQuestion) optional field 'answer' must be a string when present but is ${show(
+          b.answer
+        )}`
+      );
+    }
+  },
+  // --- v2 kinds (PRD-scoped; design.md §4 lines 143-149) -------------------
+  phase(b, path, errors) {
+    requireString(b, "title", path, errors);
+    if (b.taskIds === void 0) {
+      errors.push(
+        `${path} (phase) missing required field 'taskIds' (id[] — string[] of task block ids)`
+      );
+    } else {
+      checkStringArray(b.taskIds, `${path}.taskIds`, "phase.taskIds", errors);
+    }
+  },
+  tradeoff(b, path, errors) {
+    requireString(b, "axis", path, errors);
+    if (!Array.isArray(b.options)) {
+      errors.push(
+        `${path} (tradeoff) missing required field 'options' ({label,score?,note?}[]) — got ${show(
+          b.options
+        )}`
+      );
+    } else {
+      if (b.options.length === 0) {
+        errors.push(
+          `${path}.options (tradeoff) must contain at least one option`
+        );
+      }
+      for (let i = 0; i < b.options.length; i++) {
+        const opt = b.options[i];
+        const optPath = `${path}.options[${i}]`;
+        if (!isObject(opt)) {
+          errors.push(
+            `${optPath} must be an object {label,score?,note?} but is ${show(
+              opt
+            )}`
+          );
+          continue;
+        }
+        if (!isNonEmptyString(opt.label)) {
+          errors.push(
+            `${optPath}.label is required and must be a non-empty string but is ${show(
+              opt.label
+            )}`
+          );
+        }
+        checkNumber(opt, "score", optPath, errors);
+        if (opt.note !== void 0 && !isString(opt.note)) {
+          errors.push(
+            `${optPath}.note optional field must be a string when present but is ${show(
+              opt.note
+            )}`
+          );
+        }
+      }
+    }
+  },
+  fileChange(b, path, errors) {
+    requireString(b, "path", path, errors);
+    if (b.action === void 0) {
+      errors.push(
+        `${path} (fileChange) missing required field 'action' (one of ${FILE_CHANGE_ACTIONS.join(
+          "|"
+        )})`
+      );
+    } else {
+      checkEnum(b, "action", FILE_CHANGE_ACTIONS, path, errors);
+    }
+    requireString(b, "rationale", path, errors);
+  },
+  code(b, path, errors) {
+    requireString(b, "lang", path, errors);
+    if (!isString(b.content)) {
+      errors.push(
+        `${path} (code) missing required field 'content' (string, may be empty) — got ${show(
+          b.content
+        )}`
+      );
+    }
+    if (b.filename !== void 0 && !isString(b.filename)) {
+      errors.push(
+        `${path} (code) optional field 'filename' must be a string when present but is ${show(
+          b.filename
+        )}`
+      );
+    }
+  },
+  table(b, path, errors) {
+    const columnsOk = checkStringArray(
+      b.columns,
+      `${path}.columns`,
+      "table.columns",
+      errors
     );
+    if (!Array.isArray(b.rows)) {
+      errors.push(
+        `${path} (table) missing required field 'rows' (string[][]) — got ${show(
+          b.rows
+        )}`
+      );
+      return;
+    }
+    const colLen = Array.isArray(b.columns) ? b.columns.length : null;
+    for (let i = 0; i < b.rows.length; i++) {
+      const row = b.rows[i];
+      const rowOk = checkStringArray(
+        row,
+        `${path}.rows[${i}]`,
+        "table.row",
+        errors
+      );
+      if (rowOk && columnsOk && colLen !== null && row.length !== colLen) {
+        errors.push(
+          `${path}.rows[${i}] (table) has ${row.length} cell(s) but the table declares ${colLen} column(s) — every row length must equal columns.length`
+        );
+      }
+    }
+  },
+  diagram(b, path, errors) {
+    requireString(b, "mermaid", path, errors);
   }
-}
-function validateDiffLine(line, path, errors) {
-  if (!isObject(line)) {
-    errors.push(
-      `${path} must be an object {op,text} but is ${show(line)}`
-    );
-    return;
-  }
-  checkEnum(line, "op", DIFF_LINE_OPS, path, errors);
-  if (!isString(line.text)) {
-    errors.push(
-      `${path} (DiffLine) missing required field 'text' (string, may be empty) — got ${show(
-        line.text
-      )}`
-    );
-  }
-}
-function validateBlockComment(c, path, errors) {
-  if (!isObject(c)) {
-    errors.push(
-      `${path} must be an object {commentId,hunkId,text,verdict} but is ${show(
-        c
-      )}`
-    );
-    return;
-  }
-  if (!isNonEmptyString(c.commentId)) {
-    errors.push(
-      `${path}.commentId is required and must be a non-empty string (stable) but is ${show(
-        c.commentId
-      )}`
-    );
-  }
-  if (c.hunkId !== null && !isString(c.hunkId)) {
-    errors.push(
-      `${path}.hunkId is required and must be a string (the Hunk.hunkId) or null (file-level comment) but is ${show(
-        c.hunkId
-      )}`
-    );
-  }
-  requireString(c, "text", path, errors);
-  checkEnum(c, "verdict", BLOCK_COMMENT_VERDICTS, path, errors);
-}
-function validateBlock(block, index, errors, docType) {
+};
+function validateBlock(block, index, errors) {
   const path = `blocks[${index}]`;
-  const isDiffReview = docType === "diff-review";
-  const validKindList = isDiffReview ? DIFF_REVIEW_KIND_LIST : PRD_KIND_LIST;
   if (!isObject(block)) {
     errors.push(`${path} must be an object but is ${show(block)}`);
     return;
@@ -180,25 +655,9 @@ function validateBlock(block, index, errors, docType) {
   }
   if (!isString(block.kind)) {
     errors.push(
-      `${path}.kind is required and must be a string (one of ${validKindList}) but is ${show(
+      `${path}.kind is required and must be a string (one of ${PRD_KIND_LIST}) but is ${show(
         block.kind
       )}`
-    );
-    return;
-  }
-  if (isDiffReview && V2_KIND_SET.has(block.kind)) {
-    errors.push(
-      `${path}.kind ${show(
-        block.kind
-      )} is a v2 plan/PRD kind and is not allowed in a type:'diff-review' document (expected one of ${DIFF_REVIEW_KIND_LIST}; v2 kinds require type:'plan' or type:'prd')`
-    );
-    return;
-  }
-  if (!isDiffReview && V3_KIND_SET.has(block.kind)) {
-    errors.push(
-      `${path}.kind ${show(
-        block.kind
-      )} is a v3 diff-review-only kind and is not allowed in a type:'${docType === void 0 ? "plan" : docType}' document (expected one of ${PRD_KIND_LIST}; the 'diff' kind requires type:'diff-review')`
     );
     return;
   }
@@ -207,7 +666,7 @@ function validateBlock(block, index, errors, docType) {
     errors.push(
       `${path}.kind ${show(
         block.kind
-      )} is not a valid ${isDiffReview ? "v1∪v3" : "v1∪v2"} kind (expected one of ${validKindList})`
+      )} is not a valid v1∪v2 kind (expected one of ${PRD_KIND_LIST})`
     );
     return;
   }
@@ -271,7 +730,7 @@ function validateDocument(obj) {
     errors.push(
       `type ${show(
         obj.type
-      )} is not valid (expected one of ${DOC_TYPES.join("|")}; v1 plan flow uses 'plan')`
+      )} is not valid (expected one of ${DOC_TYPES.join("|")}; the PRD flow uses 'prd')`
     );
   }
   if (!isNonEmptyString(obj.id)) {
@@ -302,7 +761,7 @@ function validateDocument(obj) {
       );
     }
     for (let i = 0; i < obj.blocks.length; i++) {
-      validateBlock(obj.blocks[i], i, errors, obj.type);
+      validateBlock(obj.blocks[i], i, errors);
     }
   }
   if (errors.length > 0) {
@@ -313,394 +772,6 @@ function validateDocument(obj) {
     obj
   ) };
 }
-var V1_KINDS, V2_KINDS, V3_KINDS, V2_KIND_SET, V3_KIND_SET, PRD_KIND_LIST, DIFF_REVIEW_KIND_LIST, DIFF_STATUS, DIFF_LINE_OPS, BLOCK_COMMENT_VERDICTS, FILE_CHANGE_ACTIONS, DOC_STATUS, TASK_STATUS, LMH, DOC_TYPES, isObject, isString, isNonEmptyString, isInteger, KIND_VALIDATORS;
-var init_validate = __esm({
-  "src/schema/validate.mjs"() {
-    "use strict";
-    V1_KINDS = Object.freeze([
-      "section",
-      "prose",
-      "objective",
-      "task",
-      "decision",
-      "risk",
-      "openQuestion"
-    ]);
-    V2_KINDS = Object.freeze([
-      "phase",
-      "tradeoff",
-      "fileChange",
-      "code",
-      "table",
-      "diagram"
-    ]);
-    V3_KINDS = Object.freeze(["diff"]);
-    V2_KIND_SET = new Set(V2_KINDS);
-    V3_KIND_SET = new Set(V3_KINDS);
-    PRD_KIND_LIST = V1_KINDS.concat(V2_KINDS).join("|");
-    DIFF_REVIEW_KIND_LIST = V1_KINDS.concat(V3_KINDS).join("|");
-    DIFF_STATUS = Object.freeze([
-      "added",
-      "modified",
-      "deleted",
-      "renamed",
-      "binary"
-    ]);
-    DIFF_LINE_OPS = Object.freeze([" ", "+", "-"]);
-    BLOCK_COMMENT_VERDICTS = Object.freeze(["accept", "reject", "comment"]);
-    FILE_CHANGE_ACTIONS = Object.freeze(["add", "modify", "delete"]);
-    DOC_STATUS = Object.freeze(["draft", "in-review", "approved"]);
-    TASK_STATUS = Object.freeze(["todo", "doing", "done", "cut"]);
-    LMH = Object.freeze(["L", "M", "H"]);
-    DOC_TYPES = Object.freeze(["plan", "prd", "diff-review"]);
-    isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-    isString = (v) => typeof v === "string";
-    isNonEmptyString = (v) => typeof v === "string" && v.length > 0;
-    isInteger = (v) => typeof v === "number" && Number.isInteger(v);
-    KIND_VALIDATORS = {
-      section(b, path, errors) {
-        requireString(b, "title", path, errors);
-        if (!isInteger(b.level)) {
-          errors.push(
-            `${path} (section '${b.title ?? ""}') field 'level' must be an integer but is ${show(
-              b.level
-            )}`
-          );
-        }
-        if (b.collapsed !== void 0 && typeof b.collapsed !== "boolean") {
-          errors.push(
-            `${path} (section) optional field 'collapsed' must be a boolean when present but is ${show(
-              b.collapsed
-            )}`
-          );
-        }
-      },
-      prose(b, path, errors) {
-        if (!isString(b.md)) {
-          errors.push(
-            `${path} (prose) missing required field 'md' (string) — got ${show(
-              b.md
-            )}`
-          );
-        }
-      },
-      objective(b, path, errors) {
-        requireString(b, "text", path, errors);
-        if (b.successCriteria === void 0) {
-          errors.push(
-            `${path} (objective) missing required field 'successCriteria' (string[])`
-          );
-        } else {
-          checkStringArray(
-            b.successCriteria,
-            `${path}.successCriteria`,
-            "objective.successCriteria",
-            errors
-          );
-        }
-      },
-      task(b, path, errors) {
-        const title = isString(b.title) ? b.title : "";
-        requireString(b, "title", path, errors);
-        if (b.detail !== void 0 && !isString(b.detail)) {
-          errors.push(
-            `${path} (task '${title}') optional field 'detail' must be a string when present but is ${show(
-              b.detail
-            )}`
-          );
-        }
-        if (b.status === void 0) {
-          errors.push(
-            `${path} (task '${title}') missing required field 'status' (one of ${TASK_STATUS.join(
-              "|"
-            )})`
-          );
-        } else if (!TASK_STATUS.includes(b.status)) {
-          errors.push(
-            `${path}.status ${show(
-              b.status
-            )} is not a valid task status (expected one of ${TASK_STATUS.join("|")})`
-          );
-        }
-        if (b.deps === void 0) {
-          errors.push(
-            `${path} (task '${title}') missing required field 'deps' (id[] — string[] of block ids)`
-          );
-        } else {
-          checkStringArray(b.deps, `${path}.deps`, "task.deps", errors);
-        }
-        if (b.acceptance === void 0) {
-          errors.push(
-            `${path} (task '${title}') missing required field 'acceptance' (string[])`
-          );
-        } else {
-          checkStringArray(
-            b.acceptance,
-            `${path}.acceptance`,
-            "task.acceptance",
-            errors
-          );
-        }
-        if (b.estimate !== void 0 && !isString(b.estimate)) {
-          errors.push(
-            `${path} (task '${title}') optional field 'estimate' must be a string when present but is ${show(
-              b.estimate
-            )}`
-          );
-        }
-      },
-      decision(b, path, errors) {
-        requireString(b, "question", path, errors);
-        if (!Array.isArray(b.options)) {
-          errors.push(
-            `${path} (decision) missing required field 'options' ({label,pros?,cons?}[]) — got ${show(
-              b.options
-            )}`
-          );
-        } else {
-          if (b.options.length === 0) {
-            errors.push(
-              `${path}.options (decision) must contain at least one option`
-            );
-          }
-          for (let i = 0; i < b.options.length; i++) {
-            const opt = b.options[i];
-            const optPath = `${path}.options[${i}]`;
-            if (!isObject(opt)) {
-              errors.push(`${optPath} must be an object {label,pros?,cons?} but is ${show(opt)}`);
-              continue;
-            }
-            if (!isNonEmptyString(opt.label)) {
-              errors.push(
-                `${optPath}.label is required and must be a non-empty string but is ${show(
-                  opt.label
-                )}`
-              );
-            }
-            if (opt.pros !== void 0) {
-              checkStringArray(opt.pros, `${optPath}.pros`, "decision option pros", errors);
-            }
-            if (opt.cons !== void 0) {
-              checkStringArray(opt.cons, `${optPath}.cons`, "decision option cons", errors);
-            }
-          }
-        }
-        if (b.chosen !== void 0 && !isString(b.chosen)) {
-          errors.push(
-            `${path} (decision) optional field 'chosen' must be a string (an option label) when present but is ${show(
-              b.chosen
-            )}`
-          );
-        }
-        if (b.rationale !== void 0 && !isString(b.rationale)) {
-          errors.push(
-            `${path} (decision) optional field 'rationale' must be a string when present but is ${show(
-              b.rationale
-            )}`
-          );
-        }
-      },
-      risk(b, path, errors) {
-        requireString(b, "description", path, errors);
-        if (b.likelihood === void 0) {
-          errors.push(
-            `${path} (risk) missing required field 'likelihood' (one of ${LMH.join(
-              "|"
-            )})`
-          );
-        } else if (!LMH.includes(b.likelihood)) {
-          errors.push(
-            `${path}.likelihood ${show(
-              b.likelihood
-            )} is not a valid value (expected one of ${LMH.join("|")})`
-          );
-        }
-        if (b.impact === void 0) {
-          errors.push(
-            `${path} (risk) missing required field 'impact' (one of ${LMH.join(
-              "|"
-            )})`
-          );
-        } else if (!LMH.includes(b.impact)) {
-          errors.push(
-            `${path}.impact ${show(
-              b.impact
-            )} is not a valid value (expected one of ${LMH.join("|")})`
-          );
-        }
-        requireString(b, "mitigation", path, errors);
-      },
-      openQuestion(b, path, errors) {
-        requireString(b, "question", path, errors);
-        if (b.answer !== void 0 && !isString(b.answer)) {
-          errors.push(
-            `${path} (openQuestion) optional field 'answer' must be a string when present but is ${show(
-              b.answer
-            )}`
-          );
-        }
-      },
-      // --- v2 kinds (PRD-scoped; design.md §4 lines 143-149) -------------------
-      phase(b, path, errors) {
-        requireString(b, "title", path, errors);
-        if (b.taskIds === void 0) {
-          errors.push(
-            `${path} (phase) missing required field 'taskIds' (id[] — string[] of task block ids)`
-          );
-        } else {
-          checkStringArray(b.taskIds, `${path}.taskIds`, "phase.taskIds", errors);
-        }
-      },
-      tradeoff(b, path, errors) {
-        requireString(b, "axis", path, errors);
-        if (!Array.isArray(b.options)) {
-          errors.push(
-            `${path} (tradeoff) missing required field 'options' ({label,score?,note?}[]) — got ${show(
-              b.options
-            )}`
-          );
-        } else {
-          if (b.options.length === 0) {
-            errors.push(
-              `${path}.options (tradeoff) must contain at least one option`
-            );
-          }
-          for (let i = 0; i < b.options.length; i++) {
-            const opt = b.options[i];
-            const optPath = `${path}.options[${i}]`;
-            if (!isObject(opt)) {
-              errors.push(
-                `${optPath} must be an object {label,score?,note?} but is ${show(
-                  opt
-                )}`
-              );
-              continue;
-            }
-            if (!isNonEmptyString(opt.label)) {
-              errors.push(
-                `${optPath}.label is required and must be a non-empty string but is ${show(
-                  opt.label
-                )}`
-              );
-            }
-            checkNumber(opt, "score", optPath, errors);
-            if (opt.note !== void 0 && !isString(opt.note)) {
-              errors.push(
-                `${optPath}.note optional field must be a string when present but is ${show(
-                  opt.note
-                )}`
-              );
-            }
-          }
-        }
-      },
-      fileChange(b, path, errors) {
-        requireString(b, "path", path, errors);
-        if (b.action === void 0) {
-          errors.push(
-            `${path} (fileChange) missing required field 'action' (one of ${FILE_CHANGE_ACTIONS.join(
-              "|"
-            )})`
-          );
-        } else {
-          checkEnum(b, "action", FILE_CHANGE_ACTIONS, path, errors);
-        }
-        requireString(b, "rationale", path, errors);
-      },
-      code(b, path, errors) {
-        requireString(b, "lang", path, errors);
-        if (!isString(b.content)) {
-          errors.push(
-            `${path} (code) missing required field 'content' (string, may be empty) — got ${show(
-              b.content
-            )}`
-          );
-        }
-        if (b.filename !== void 0 && !isString(b.filename)) {
-          errors.push(
-            `${path} (code) optional field 'filename' must be a string when present but is ${show(
-              b.filename
-            )}`
-          );
-        }
-      },
-      table(b, path, errors) {
-        const columnsOk = checkStringArray(
-          b.columns,
-          `${path}.columns`,
-          "table.columns",
-          errors
-        );
-        if (!Array.isArray(b.rows)) {
-          errors.push(
-            `${path} (table) missing required field 'rows' (string[][]) — got ${show(
-              b.rows
-            )}`
-          );
-          return;
-        }
-        const colLen = Array.isArray(b.columns) ? b.columns.length : null;
-        for (let i = 0; i < b.rows.length; i++) {
-          const row = b.rows[i];
-          const rowOk = checkStringArray(
-            row,
-            `${path}.rows[${i}]`,
-            "table.row",
-            errors
-          );
-          if (rowOk && columnsOk && colLen !== null && row.length !== colLen) {
-            errors.push(
-              `${path}.rows[${i}] (table) has ${row.length} cell(s) but the table declares ${colLen} column(s) — every row length must equal columns.length`
-            );
-          }
-        }
-      },
-      diagram(b, path, errors) {
-        requireString(b, "mermaid", path, errors);
-      },
-      // --- v3 kind (diff-review-scoped; design.md §4 lines 151-153) -----------
-      diff(b, path, errors) {
-        requireString(b, "path", path, errors);
-        if (!Array.isArray(b.hunks)) {
-          errors.push(
-            `${path} (diff) missing required field 'hunks' (Hunk[], may be empty for a binary/rename stub) — got ${show(
-              b.hunks
-            )}`
-          );
-        } else {
-          for (let i = 0; i < b.hunks.length; i++) {
-            validateHunk(b.hunks[i], `${path}.hunks[${i}]`, errors);
-          }
-        }
-        if (!Array.isArray(b.comments)) {
-          errors.push(
-            `${path} (diff) missing required field 'comments' (BlockComment[], may be empty) — got ${show(
-              b.comments
-            )}`
-          );
-        } else {
-          for (let i = 0; i < b.comments.length; i++) {
-            validateBlockComment(
-              b.comments[i],
-              `${path}.comments[${i}]`,
-              errors
-            );
-          }
-        }
-        if (b.status !== void 0) {
-          checkEnum(b, "status", DIFF_STATUS, path, errors);
-        }
-        if (b.oldPath !== void 0 && !isString(b.oldPath)) {
-          errors.push(
-            `${path} (diff) optional field 'oldPath' must be a string when present but is ${show(
-              b.oldPath
-            )}`
-          );
-        }
-      }
-    };
-  }
-});
 
 // src/schema/fallback.mjs
 import { randomUUID } from "node:crypto";
@@ -741,13 +812,22 @@ function deriveTitle(text) {
   }
   return "Unstructured plan (degraded)";
 }
-var init_fallback = __esm({
-  "src/schema/fallback.mjs"() {
-    "use strict";
-  }
-});
 
 // src/schema/envelope.mjs
+var ENVELOPE_DECISIONS = Object.freeze(["approve", "revise"]);
+var EDIT_OPS = Object.freeze([
+  "editBlock",
+  "deleteBlock",
+  "moveBlock",
+  "comment",
+  "answer",
+  "addBlock"
+]);
+var OP_LIST = EDIT_OPS.join("|");
+var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var isString2 = (v) => typeof v === "string";
+var isNonEmptyString2 = (v) => typeof v === "string" && v.length > 0;
+var isInteger2 = (v) => typeof v === "number" && Number.isInteger(v);
 function show2(v) {
   if (typeof v === "string") return `'${v}'`;
   if (v === void 0) return "undefined";
@@ -1019,698 +1099,37 @@ function renderOpsHuman(envelope) {
   }
   return lines.join("\n");
 }
-var ENVELOPE_DECISIONS, EDIT_OPS, OP_LIST, isObject2, isString2, isNonEmptyString2, isInteger2;
-var init_envelope = __esm({
-  "src/schema/envelope.mjs"() {
-    "use strict";
-    ENVELOPE_DECISIONS = Object.freeze(["approve", "revise"]);
-    EDIT_OPS = Object.freeze([
-      "editBlock",
-      "deleteBlock",
-      "moveBlock",
-      "comment",
-      "answer",
-      "addBlock"
-    ]);
-    OP_LIST = EDIT_OPS.join("|");
-    isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-    isString2 = (v) => typeof v === "string";
-    isNonEmptyString2 = (v) => typeof v === "string" && v.length > 0;
-    isInteger2 = (v) => typeof v === "number" && Number.isInteger(v);
-  }
-});
 
 // src/schema/id-strategy.mjs
-function getStrategy(env = process.env) {
-  const raw = env && env[ID_STRATEGY_ENV];
-  if (raw === "semantic-slug" || raw === "opaque") return raw;
-  return DEV_DEFAULT_STRATEGY;
-}
-function slugify(text, maxWords = 5) {
-  const s = String(text == null ? "" : text).toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
-  if (s.length === 0) return "";
-  return s.split(/\s+/).slice(0, maxWords).join("-");
-}
-function prefixFor(kind) {
-  return KIND_PREFIX[kind] || DEFAULT_PREFIX;
-}
-function primaryTextOf(block) {
-  if (!block || typeof block !== "object") return "";
-  const field = PRIMARY_TEXT_FIELD[block.kind];
-  const v = field ? block[field] : void 0;
-  return typeof v === "string" ? v : "";
-}
-function disambiguate(base, existingIds) {
-  const taken = existingIds instanceof Set ? existingIds : new Set(existingIds || []);
-  if (!taken.has(base)) return base;
-  let n = 2;
-  while (taken.has(`${base}-${n}`)) n++;
-  return `${base}-${n}`;
-}
-function semanticSlugFactory() {
-  return {
-    strategy: "semantic-slug",
-    /**
-     * @param {{ kind?: string }} block
-     * @param {Set<string> | Iterable<string>} [existingIds]
-     * @returns {string}
-     */
-    mint(block, existingIds) {
-      const prefix = prefixFor(block && block.kind);
-      const slug = slugify(primaryTextOf(block));
-      const base = slug ? `${prefix}-${slug}` : prefix;
-      return disambiguate(base, existingIds);
-    }
-  };
-}
-function opaqueFactory() {
-  let counter = 0;
-  return {
-    strategy: "opaque",
-    /**
-     * @param {unknown} _block - intentionally unused: opaque ids are not
-     *   derived from block content (that is the whole point of the scheme).
-     * @param {Set<string> | Iterable<string>} [existingIds]
-     * @returns {string}
-     */
-    mint(_block, existingIds) {
-      const taken = existingIds instanceof Set ? existingIds : new Set(existingIds || []);
-      for (const id of taken) {
-        const m = /^b(\d+)$/.exec(id);
-        if (m) {
-          const n = Number(m[1]);
-          if (Number.isFinite(n) && n > counter) counter = n;
-        }
-      }
-      let candidate;
-      do {
-        counter += 1;
-        candidate = `b${counter}`;
-      } while (taken.has(candidate));
-      return candidate;
-    }
-  };
-}
-function makeIdFactory(strategy = getStrategy()) {
-  if (strategy === "opaque") return opaqueFactory();
-  if (strategy === "semantic-slug") return semanticSlugFactory();
-  throw new Error(
-    `unknown id strategy ${JSON.stringify(strategy)} (expected one of ${ID_STRATEGIES.join(
-      " | "
-    )})`
-  );
-}
-function idPreservationInstruction(strategy = getStrategy()) {
-  if (strategy !== "semantic-slug" && strategy !== "opaque") {
-    throw new Error(
-      `unknown id strategy ${JSON.stringify(strategy)} (expected one of ${ID_STRATEGIES.join(
-        " | "
-      )})`
-    );
-  }
-  return [
-    "## Block ID stability (load-bearing)",
-    "",
-    NEVER_RENUMBER_RULE,
-    "",
-    STRATEGY_GUIDANCE[strategy]
-  ].join("\n");
-}
-var ID_STRATEGIES, ID_STRATEGY_ENV, PRODUCTION_DEFAULT_STRATEGY, DEV_DEFAULT_STRATEGY, KIND_PREFIX, DEFAULT_PREFIX, PRIMARY_TEXT_FIELD, NEVER_RENUMBER_RULE, STRATEGY_GUIDANCE;
-var init_id_strategy = __esm({
-  "src/schema/id-strategy.mjs"() {
-    "use strict";
-    ID_STRATEGIES = Object.freeze(["semantic-slug", "opaque"]);
-    ID_STRATEGY_ENV = "PLANOS_ID_STRATEGY";
-    PRODUCTION_DEFAULT_STRATEGY = "opaque";
-    DEV_DEFAULT_STRATEGY = PRODUCTION_DEFAULT_STRATEGY;
-    KIND_PREFIX = Object.freeze({
-      section: "sec",
-      prose: "prose",
-      objective: "obj",
-      task: "task",
-      decision: "dec",
-      risk: "risk",
-      openQuestion: "q"
-    });
-    DEFAULT_PREFIX = "blk";
-    PRIMARY_TEXT_FIELD = Object.freeze({
-      section: "title",
-      prose: "md",
-      objective: "text",
-      task: "title",
-      decision: "question",
-      risk: "description",
-      openQuestion: "question"
-    });
-    NEVER_RENUMBER_RULE = "When you revise this document, REUSE the `id` of any block whose intent is unchanged. Only mint new IDs for genuinely new blocks. NEVER renumber or regenerate IDs for blocks that already exist — even if their wording, order, or surrounding blocks changed.";
-    STRATEGY_GUIDANCE = Object.freeze({
-      "semantic-slug": "IDs are human-meaningful slugs of the form `<kind>-<short-slug>` (e.g. `task-auth-middleware`, `dec-db-choice`, `q-rollback-window`). Treat the slug as an opaque stable handle: do NOT re-slug an existing block just because you reworded its title or text — keep its original ID. Only derive a fresh `<kind>-<slug>` ID for a block that did not exist in the prior revision. If two new blocks would slug identically, disambiguate the second with a `-2` (then `-3`, …) suffix.",
-      opaque: "IDs are short opaque tokens of the form `b<number>` (e.g. `b1`, `b2`, `b17`). They carry NO meaning and MUST NOT be derived from a block's content — never rename an ID to match an edited title. The prior revision's `(id, kind, title)` echo table is your source of truth for which token belongs to which block; reuse those tokens exactly. For a genuinely new block, mint the next unused `b<number>` higher than every existing token; never reuse or recycle a retired token."
-    });
-  }
+var ID_STRATEGIES = Object.freeze(["semantic-slug", "opaque"]);
+var KIND_PREFIX = Object.freeze({
+  section: "sec",
+  prose: "prose",
+  objective: "obj",
+  task: "task",
+  decision: "dec",
+  risk: "risk",
+  openQuestion: "q"
+});
+var PRIMARY_TEXT_FIELD = Object.freeze({
+  section: "title",
+  prose: "md",
+  objective: "text",
+  task: "title",
+  decision: "question",
+  risk: "description",
+  openQuestion: "question"
+});
+var STRATEGY_GUIDANCE = Object.freeze({
+  "semantic-slug": "IDs are human-meaningful slugs of the form `<kind>-<short-slug>` (e.g. `task-auth-middleware`, `dec-db-choice`, `q-rollback-window`). Treat the slug as an opaque stable handle: do NOT re-slug an existing block just because you reworded its title or text — keep its original ID. Only derive a fresh `<kind>-<slug>` ID for a block that did not exist in the prior revision. If two new blocks would slug identically, disambiguate the second with a `-2` (then `-3`, …) suffix.",
+  opaque: "IDs are short opaque tokens of the form `b<number>` (e.g. `b1`, `b2`, `b17`). They carry NO meaning and MUST NOT be derived from a block's content — never rename an ID to match an edited title. The prior revision's `(id, kind, title)` echo table is your source of truth for which token belongs to which block; reuse those tokens exactly. For a genuinely new block, mint the next unused `b<number>` higher than every existing token; never reuse or recycle a retired token."
 });
 
-// src/schema/index.mjs
-var schema_exports = {};
-__export(schema_exports, {
-  DEV_DEFAULT_STRATEGY: () => DEV_DEFAULT_STRATEGY,
-  EDIT_OPS: () => EDIT_OPS,
-  ENVELOPE_DECISIONS: () => ENVELOPE_DECISIONS,
-  ID_STRATEGIES: () => ID_STRATEGIES,
-  ID_STRATEGY_ENV: () => ID_STRATEGY_ENV,
-  V1_KINDS: () => V1_KINDS,
-  activeIdStrategy: () => activeIdStrategy,
-  checkBaseRevision: () => checkBaseRevision,
-  degradeToProse: () => degradeToProse,
-  getStrategy: () => getStrategy,
-  idPreservationInstruction: () => idPreservationInstruction,
-  makeIdFactory: () => makeIdFactory,
-  renderOpsHuman: () => renderOpsHuman,
-  validateDocument: () => validateDocument,
-  validateEnvelope: () => validateEnvelope
-});
-function activeIdStrategy(env = process.env) {
-  const strategy = getStrategy(env);
-  return {
-    strategy,
-    idFactory: makeIdFactory(strategy),
-    authoringInstruction: idPreservationInstruction(strategy)
-  };
-}
-var init_schema = __esm({
-  "src/schema/index.mjs"() {
-    "use strict";
-    init_validate();
-    init_fallback();
-    init_envelope();
-    init_id_strategy();
-    init_id_strategy();
-  }
-});
-
-// src/hook/enter.mjs
-async function tryLoadIdStrategyInstructions() {
-  try {
-    const mod = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const active = mod.activeIdStrategy?.();
-    if (active && typeof active.authoringInstruction === "string" && active.authoringInstruction.length > 0) {
-      return active.authoringInstruction;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-var ID_PRESERVATION_RULES_FALLBACK = `## Block ID Preservation Rules (CRITICAL)
-
-Block IDs are the stable revision-chain key for every annotation, diff, and
-feedback anchor. You MUST follow these rules on every revision:
-
-1. REUSE the \`id\` of any block whose intent is unchanged — even if you
-   rephrase its title or content. Same concept = same id.
-2. Only MINT a new \`id\` for blocks that are genuinely new (no corresponding
-   prior block). Choose a short, unique, human-readable identifier such as
-   "t2", "risk-caching", "q-deploy-window".
-3. NEVER renumber. Do not shift ids numerically just because block positions
-   changed. IDs are semantic anchors, not positional indices.
-4. The deny feedback includes the current (id, kind, title) table — use it
-   as your exact reference when revising. Reuse every id you see there.
-
-Violation: re-minted IDs break every annotation and diff anchor permanently.`;
-var SCHEMA_SUMMARY = `## planos v1 Block Schema — Authoring Reference
-
-Author the plan as a **JSON block document** matching the schema below.
-Output ONLY the raw JSON — no markdown fences, no prose around it.
-
-### Document shape
-
-\`\`\`
-{
-  "schemaVersion": 1,                  // always 1
-  "type": "plan",                      // use "plan" for plan-mode
-  "id": "<string>",                    // STABLE across revisions (revision-chain key)
-  "title": "<string>",                 // human title of the plan
-  "meta": {
-    "status": "draft",                 // one of: draft | in-review | approved
-    "createdAt": "<ISO-8601>",         // e.g. "2026-05-16T12:00:00.000Z"
-    "revision": 1                      // integer; increment on each revision
-  },
-  "blocks": [ ...Block ]
-}
-\`\`\`
-
-### Block kinds (v1 core — 7 kinds)
-
-Every block requires \`"id"\` (stable string) and \`"kind"\` (discriminant).
-
-| kind | Required fields | Optional fields |
-|------|----------------|-----------------|
-| \`section\` | id, kind, title (string), level (integer 1–6) | collapsed (boolean) |
-| \`prose\` | id, kind, md (markdown string) | — |
-| \`objective\` | id, kind, text (string), successCriteria (string[]) | — |
-| \`task\` | id, kind, title (string), status (todo\\|doing\\|done\\|cut), deps (id[]), acceptance (string[]) | detail (string), estimate (string) |
-| \`decision\` | id, kind, question (string), options ({label, pros?, cons?}[]) | chosen (label string), rationale (string) |
-| \`risk\` | id, kind, description (string), likelihood (L\\|M\\|H), impact (L\\|M\\|H), mitigation (string) | — |
-| \`openQuestion\` | id, kind, question (string) | answer (string) |
-
-Use \`prose\` for narrative context. Use \`openQuestion\` for anything that
-REQUIRES human input — the reviewer answers it directly in the UI.`;
-var WORKED_EXAMPLE = `## Worked Example — Small Valid v1 Plan Document
-
-\`\`\`json
-{
-  "schemaVersion": 1,
-  "type": "plan",
-  "id": "auth-rewrite-2026-05-16",
-  "title": "Auth Rewrite",
-  "meta": {
-    "status": "draft",
-    "createdAt": "2026-05-16T12:00:00.000Z",
-    "revision": 1
-  },
-  "blocks": [
-    {
-      "id": "s-overview",
-      "kind": "section",
-      "title": "Overview",
-      "level": 1
-    },
-    {
-      "id": "p-context",
-      "kind": "prose",
-      "md": "We are replacing the legacy session store with a JWT-based system to enable horizontal scaling."
-    },
-    {
-      "id": "obj-migration",
-      "kind": "objective",
-      "text": "Zero-downtime migration to the new auth system",
-      "successCriteria": [
-        "No 5xx spike during cutover",
-        "p99 latency stays under 200 ms"
-      ]
-    },
-    {
-      "id": "t-dual-write",
-      "kind": "task",
-      "title": "Build dual-write layer",
-      "detail": "Write to both old and new store behind a feature flag",
-      "status": "todo",
-      "deps": [],
-      "acceptance": ["Both stores consistent under load test"],
-      "estimate": "3d"
-    },
-    {
-      "id": "dec-token-format",
-      "kind": "decision",
-      "question": "Which token format should we use?",
-      "options": [
-        { "label": "JWT", "pros": ["stateless", "standard"], "cons": ["revocation complexity"] },
-        { "label": "opaque", "pros": ["easy revocation"], "cons": ["requires DB lookup"] }
-      ],
-      "chosen": "JWT",
-      "rationale": "Stateless scaling wins for our read-heavy workload."
-    },
-    {
-      "id": "risk-stampede",
-      "kind": "risk",
-      "description": "Cache stampede on cutover",
-      "likelihood": "M",
-      "impact": "H",
-      "mitigation": "Request coalescing and cache warmup before traffic shift"
-    },
-    {
-      "id": "q-legacy-endpoint",
-      "kind": "openQuestion",
-      "question": "Do we keep the legacy endpoint for one release cycle?"
-    }
-  ]
-}
-\`\`\``;
-async function handleEnter() {
-  const idRules = await tryLoadIdStrategyInstructions() ?? ID_PRESERVATION_RULES_FALLBACK;
-  const additionalContext = [
-    SCHEMA_SUMMARY,
-    "",
-    WORKED_EXAMPLE,
-    "",
-    idRules
-  ].join("\n");
-  const output = JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      additionalContext
-    }
-  });
-  const flushed = process.stdout.write(output + "\n", "utf8", () => {
-    process.exit(0);
-  });
-  if (flushed) {
-  }
-}
-
-// src/hook/exit.mjs
-import { readFileSync as readFileSync3, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname as dirname2, resolve } from "node:path";
-import { spawn } from "node:child_process";
-
-// src/server/index.mjs
-import { createServer } from "node:http";
-var MAX_PORT_RETRIES = 20;
-function bindFreePort(server) {
-  return new Promise((resolve3, reject) => {
-    let attempts = 0;
-    function tryBind() {
-      attempts += 1;
-      server.listen(0, "127.0.0.1", () => {
-        const { port } = server.address();
-        resolve3(port);
-      });
-      server.once("error", (err) => {
-        if (err.code === "EADDRINUSE" && attempts < MAX_PORT_RETRIES) {
-          server.removeAllListeners("error");
-          tryBind();
-        } else {
-          reject(err);
-        }
-      });
-    }
-    tryBind();
-  });
-}
-function readBody(req) {
-  return new Promise((resolve3, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve3(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
-function flushStdout(text) {
-  return new Promise((resolve3, reject) => {
-    const flushed = process.stdout.write(text, "utf8", (err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      setImmediate(resolve3);
-    });
-    if (flushed) {
-    }
-  });
-}
-async function startServer({
-  onReady = () => {
-  },
-  serveHtml = "<html><body></body></html>",
-  apiHandlers = {}
-} = {}) {
-  let resolveDecision;
-  const decisionPromise = new Promise((res) => {
-    resolveDecision = res;
-  });
-  const server = createServer(async (req, res) => {
-    const { method, url: url2 } = req;
-    if (method === "GET" && url2 === "/") {
-      res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Content-Length": Buffer.byteLength(serveHtml)
-      });
-      res.end(serveHtml);
-      return;
-    }
-    if (method === "POST" && url2 === "/api/approve") {
-      try {
-        const body = await readBody(req);
-        const payload = body ? JSON.parse(body) : {};
-        const decision = { behavior: "allow", ...payload };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-        resolveDecision(decision);
-      } catch (err) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: String(err) }));
-      }
-      return;
-    }
-    if (method === "POST" && url2 === "/api/deny") {
-      try {
-        const body = await readBody(req);
-        const payload = body ? JSON.parse(body) : {};
-        const decision = { behavior: "deny", ...payload };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-        resolveDecision(decision);
-      } catch (err) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: String(err) }));
-      }
-      return;
-    }
-    {
-      const pathname = (url2 || "").split("?")[0];
-      const handler = apiHandlers[`${method} ${pathname}`];
-      if (typeof handler === "function") {
-        try {
-          const out = handler(req) || {};
-          const status = typeof out.status === "number" ? out.status : 200;
-          if (out.json !== void 0) {
-            const payload = JSON.stringify(out.json);
-            res.writeHead(status, {
-              "Content-Type": "application/json",
-              "Content-Length": Buffer.byteLength(payload)
-            });
-            res.end(payload);
-          } else {
-            const text = typeof out.body === "string" ? out.body : "";
-            res.writeHead(status, {
-              "Content-Type": out.contentType || "text/plain; charset=utf-8",
-              "Content-Length": Buffer.byteLength(text)
-            });
-            res.end(text);
-          }
-        } catch (err) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: String(err) }));
-        }
-        return;
-      }
-    }
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "not found" }));
-  });
-  const port = await bindFreePort(server);
-  const url = `http://127.0.0.1:${port}`;
-  onReady(url);
-  async function finish(decision) {
-    await flushStdout(JSON.stringify(decision));
-    server.close();
-    process.exit(0);
-  }
-  return { decisionPromise, server, finish };
-}
-
-// src/hook/coexistence.mjs
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
-var SELF_PLUGIN_NAME = "planos";
-function declaresExitPlanModePermissionRequest(hooksJson) {
-  try {
-    const pr = hooksJson && typeof hooksJson === "object" && hooksJson.hooks && typeof hooksJson.hooks === "object" ? hooksJson.hooks.PermissionRequest : void 0;
-    if (!Array.isArray(pr)) return false;
-    return pr.some(
-      (entry) => entry && typeof entry === "object" && typeof entry.matcher === "string" && // Claude Code matchers are (extended) regexes; a literal substring
-      // test is the conservative over-detector — better to refuse a
-      // borderline collision than silently double-boot.
-      entry.matcher.includes("ExitPlanMode")
-    );
-  } catch {
-    return false;
-  }
-}
-function pluginNameOf(pluginDir) {
-  try {
-    const pj = JSON.parse(
-      readFileSync(join(pluginDir, ".claude-plugin", "plugin.json"), "utf8")
-    );
-    if (pj && typeof pj.name === "string" && pj.name.length > 0) return pj.name;
-  } catch {
-  }
-  return basename(pluginDir);
-}
-function detectCollidingExitPlanModePlugins(opts = {}) {
-  const env = opts.env || process.env;
-  const pluginRoot = typeof opts.pluginRoot === "string" && opts.pluginRoot.length > 0 ? opts.pluginRoot : env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginRoot) return [];
-  let pluginsDir;
-  try {
-    pluginsDir = dirname(pluginRoot);
-  } catch {
-    return [];
-  }
-  let entries;
-  try {
-    entries = readdirSync(pluginsDir);
-  } catch {
-    return [];
-  }
-  const colliding = [];
-  for (const name of entries) {
-    let dir;
-    try {
-      dir = join(pluginsDir, name);
-      if (!statSync(dir).isDirectory()) continue;
-    } catch {
-      continue;
-    }
-    if (dir === pluginRoot) continue;
-    let hooksJson;
-    try {
-      hooksJson = JSON.parse(
-        readFileSync(join(dir, "hooks", "hooks.json"), "utf8")
-      );
-    } catch {
-      continue;
-    }
-    if (!declaresExitPlanModePermissionRequest(hooksJson)) continue;
-    const pname = pluginNameOf(dir);
-    if (pname === SELF_PLUGIN_NAME) continue;
-    colliding.push(pname);
-  }
-  return colliding;
-}
-function coexistenceRefusalMessage(colliding) {
-  return [
-    "[planos] REFUSING TO RUN: another installed plugin also hooks",
-    `ExitPlanMode (PermissionRequest): ${colliding.join(", ")}.`,
-    "",
-    "Claude Code dispatches ExitPlanMode to ALL matching plugins in",
-    "parallel; two blocking 96h review servers cannot coexist. planos does",
-    "not support coexistence (see docs/notes/plannotator-coexistence-spike.md).",
-    "",
-    "Resolve by uninstalling the other plugin, or set PLANOS_ALLOW_COEXIST=1",
-    "to bypass this guard (you accept the documented collision risk)."
-  ].join("\n");
-}
-function coexistenceGuard(opts = {}) {
-  const env = opts.env || process.env;
-  if (env.PLANOS_ALLOW_COEXIST === "1") return [];
-  return detectCollidingExitPlanModePlugins(opts);
-}
-
-// src/hook/roundtrip.mjs
-import { readFileSync as readFileSync2 } from "node:fs";
-var MAX_STDIN_BYTES = 16 * 1024 * 1024;
-var STDIN_TIMEOUT_MS = 30 * 1e3;
-function readStdin(opts = {}) {
-  const timeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs >= 0 ? opts.timeoutMs : STDIN_TIMEOUT_MS;
-  const maxBytes = typeof opts.maxBytes === "number" && opts.maxBytes > 0 ? opts.maxBytes : MAX_STDIN_BYTES;
-  const docFile = process.env.PLANOS_DOC_FILE;
-  if (typeof docFile === "string" && docFile.trim() !== "") {
-    try {
-      const buf = readFileSync2(docFile.trim());
-      const text = buf.length > maxBytes ? buf.subarray(0, maxBytes).toString("utf8") : buf.toString("utf8");
-      return Promise.resolve(text);
-    } catch {
-    }
-  }
-  return new Promise((resolve3) => {
-    const chunks = [];
-    let total = 0;
-    let truncated = false;
-    let settled = false;
-    const stdin = process.stdin;
-    let timer = null;
-    const cleanup = () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      stdin.removeListener("data", onData);
-      stdin.removeListener("end", onEnd);
-      stdin.removeListener("error", onError);
-      try {
-        stdin.pause();
-      } catch {
-      }
-    };
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      let text = "";
-      try {
-        text = Buffer.concat(chunks).toString("utf8");
-      } catch {
-        text = "";
-      }
-      resolve3(text);
-    };
-    const onData = (chunk) => {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-      if (truncated) return;
-      if (total + buf.length > maxBytes) {
-        const room = Math.max(0, maxBytes - total);
-        if (room > 0) {
-          chunks.push(buf.subarray(0, room));
-          total += room;
-        }
-        truncated = true;
-        settle();
-        return;
-      }
-      chunks.push(buf);
-      total += buf.length;
-    };
-    const onEnd = () => settle();
-    const onError = () => settle();
-    stdin.on("data", onData);
-    stdin.on("end", onEnd);
-    stdin.on("error", onError);
-    if (timeoutMs > 0) {
-      timer = setTimeout(settle, timeoutMs);
-      if (timer && typeof timer.unref === "function") timer.unref();
-    }
-    try {
-      stdin.resume();
-    } catch {
-      settle();
-    }
-  });
-}
-function extractPlan(raw) {
-  if (typeof raw !== "string" || raw.trim().length === 0) return "";
-  let hookJson;
-  try {
-    hookJson = JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-  const plan = hookJson && typeof hookJson === "object" && hookJson.tool_input && typeof hookJson.tool_input === "object" ? hookJson.tool_input.plan : void 0;
-  if (typeof plan === "string") return plan;
-  if (hookJson && typeof hookJson === "object" && hookJson.schemaVersion === 1 && typeof hookJson.type === "string" && Array.isArray(hookJson.blocks)) {
-    return raw;
-  }
-  if (plan === void 0 || plan === null) return "";
-  try {
-    const s = JSON.stringify(plan);
-    return typeof s === "string" ? s : String(plan);
-  } catch {
-    try {
-      return String(plan);
-    } catch {
-      return "";
-    }
-  }
-}
-
-// src/hook/exit.mjs
-init_schema();
-var __dirname = dirname2(fileURLToPath(import.meta.url));
+// src/hook/prd-runtime.mjs
+var __dirname = dirname(fileURLToPath(import.meta.url));
 function resolveSpaHtmlPath() {
   const candidates = [
-    // Source-repo layout: <root>/src/hook/exit.mjs → <root>/plugin/dist/…
+    // Source-repo layout: <root>/src/hook/prd-runtime.mjs → <root>/plugin/dist/…
     resolve(__dirname, "../../plugin/dist/index.html"),
     // Packaged layout: src/ vendored under the plugin → <pkg>/dist/index.html
     resolve(__dirname, "../../dist/index.html"),
@@ -1729,10 +1148,10 @@ function resolveSpaHtmlPath() {
   return null;
 }
 var SPA_HTML_PATH = resolveSpaHtmlPath();
-var REVISE_DIRECTIVE = `YOUR PLAN WAS NOT APPROVED. You MUST revise it and re-call ExitPlanMode.
+var REVISE_DIRECTIVE = `YOUR PRD WAS NOT APPROVED. You MUST revise it and re-run /planos-prd.
 
-Do NOT proceed with the previous plan. Address the feedback below, then
-re-emit the FULL v1 block document (raw JSON only — no markdown fences).`;
+Do NOT proceed with the previous PRD. Address the feedback below, then
+re-emit the FULL v2 block document (raw JSON only — no markdown fences).`;
 function planToDocument(planText, degradeOpts = {}) {
   const text = typeof planText === "string" ? planText : "";
   let parsed;
@@ -1794,11 +1213,11 @@ function buildReviseMessage(doc, userFeedback, envelope) {
   );
   return parts.join("\n");
 }
-var STALE_OPS_DIRECTIVE = `YOUR PLAN WAS NOT APPROVED. The review was made against an OLDER revision of
+var STALE_OPS_DIRECTIVE = `YOUR PRD WAS NOT APPROVED. The review was made against an OLDER revision of
 the document than the current canonical one — the human's edits are STALE and
 were NOT applied (race guard, design.md §6).
 
-Do NOT proceed. Re-emit the FULL v1 block document below UNCHANGED so the
+Do NOT proceed. Re-emit the FULL v2 block document below UNCHANGED so the
 human can re-review the current revision. Do not invent changes from the
 stale feedback.`;
 function buildDecision(doc, resolved) {
@@ -1921,7 +1340,7 @@ function buildSpaHtml(doc) {
   let html = null;
   if (typeof SPA_HTML_PATH === "string") {
     try {
-      html = readFileSync3(SPA_HTML_PATH, "utf8");
+      html = readFileSync2(SPA_HTML_PATH, "utf8");
     } catch {
       html = null;
     }
@@ -1936,96 +1355,11 @@ function buildSpaHtml(doc) {
   }
   return inline + html;
 }
-function buildPlanApiHandlers(doc, previousDoc) {
-  const currentRev = doc && doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : 1;
-  const prevRev = previousDoc && previousDoc.meta && typeof previousDoc.meta.revision === "number" ? previousDoc.meta.revision : void 0;
-  const versions = [];
-  if (previousDoc) versions.push({ v: prevRev, revision: prevRev, doc: previousDoc });
-  versions.push({ v: currentRev, revision: currentRev, doc });
-  return {
-    "GET /api/plan": () => ({
-      json: {
-        plan: doc,
-        doc,
-        origin: "planos",
-        previousPlan: previousDoc || null,
-        versionInfo: {
-          revision: currentRev,
-          previousRevision: prevRev ?? null,
-          versions: versions.map((x) => ({ v: x.v, revision: x.revision }))
-        }
-      }
-    }),
-    "GET /api/plan/versions": () => ({
-      json: { versions: versions.map((x) => ({ v: x.v, revision: x.revision })) }
-    }),
-    "GET /api/plan/version": (req) => {
-      let v;
-      try {
-        const u = new URL(req.url, "http://127.0.0.1");
-        v = u.searchParams.get("v");
-      } catch {
-        v = null;
-      }
-      const want = v == null ? currentRev : Number(v);
-      const match = versions.find((x) => x.v === want);
-      if (!match) return { status: 404, json: { error: "no such revision" } };
-      return { json: { plan: match.doc } };
-    }
-  };
-}
-async function handleExit(options = {}) {
-  const {
-    decisionProvider,
-    previousDoc,
-    stdinText,
-    stdinOpts = {},
-    degradeOpts = {}
-  } = options;
-  const scripted = typeof decisionProvider === "function";
-  if (!scripted) {
-    const guard = typeof options.coexistenceGuard === "function" ? options.coexistenceGuard : coexistenceGuard;
-    let colliding = [];
-    try {
-      colliding = guard({}) || [];
-    } catch {
-      colliding = [];
-    }
-    if (colliding.length > 0) {
-      const onRefuse = typeof options.onRefuse === "function" ? options.onRefuse : (msg) => {
-        try {
-          process.stderr.write(msg + "\n");
-        } catch {
-        }
-        process.exit(1);
-      };
-      return onRefuse(coexistenceRefusalMessage(colliding), colliding);
-    }
-  }
-  const openBrowser = typeof options.openBrowser === "function" ? options.openBrowser : scripted ? () => {
-  } : openBrowserReal;
-  const raw = typeof stdinText === "string" ? stdinText : await readStdin(stdinOpts);
-  const planText = extractPlan(raw);
-  const doc = planToDocument(planText, degradeOpts);
-  const serveHtml = scripted ? "<!doctype html><html><body><!-- planos scripted/harness mode: no SPA --></body></html>" : buildSpaHtml(doc);
-  const apiHandlers = scripted ? {} : buildPlanApiHandlers(doc, previousDoc);
-  const { decisionPromise, finish } = await startServer({
-    onReady: (url) => {
-      openBrowser(url);
-      if (scripted) decisionProvider({ url, doc });
-    },
-    serveHtml,
-    apiHandlers
-  });
-  const resolved = await decisionPromise;
-  const decision = buildDecision(doc, resolved);
-  await finish(toPermissionRequestOutput(decision));
-}
 
 // src/prd/store.mjs
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync4, writeFileSync } from "node:fs";
-import { readdirSync as readdirSync2 } from "node:fs";
-import { join as join2, resolve as resolve2, sep, isAbsolute } from "node:path";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync3, writeFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
+import { join, resolve as resolve2, sep, isAbsolute } from "node:path";
 var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 function canonicalize(value) {
   if (Array.isArray(value)) {
@@ -2066,7 +1400,7 @@ function prdPath(rootDir, docId) {
 }
 function tryReadJson(filePath) {
   try {
-    const raw = readFileSync4(filePath, "utf8");
+    const raw = readFileSync3(filePath, "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -2074,7 +1408,7 @@ function tryReadJson(filePath) {
 }
 function loadLatest(rootDir, docId) {
   const dir = prdPath(rootDir, docId);
-  const latestPath = join2(dir, "latest.json");
+  const latestPath = join(dir, "latest.json");
   const doc = tryReadJson(latestPath);
   if (doc == null || typeof doc !== "object" || Array.isArray(doc)) return null;
   const revision = doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : null;
@@ -2093,8 +1427,8 @@ function saveRevision(rootDir, doc) {
     );
   }
   const dir = prdPath(rootDir, doc.id);
-  const revFile = join2(dir, `r${padRevision(doc.meta.revision)}.json`);
-  const latestFile = join2(dir, "latest.json");
+  const revFile = join(dir, `r${padRevision(doc.meta.revision)}.json`);
+  const latestFile = join(dir, "latest.json");
   if (existsSync2(revFile)) {
     throw new Error(
       `saveRevision: revision r${padRevision(doc.meta.revision)} already exists at ${revFile} — append-only, cannot overwrite`
@@ -2212,134 +1546,6 @@ async function handlePrd(options = {}) {
           persisted: savedPath !== null,
           ...savedPath !== null ? { path: savedPath } : {},
           ...persistError !== null ? { error: persistError } : {}
-        }
-      }
-    };
-  }
-  const fin = typeof finishOverride === "function" ? finishOverride : finish;
-  await fin(output);
-}
-
-// src/hook/review.mjs
-function buildReviewApiHandlers(doc, previousDoc) {
-  const currentRev = doc && doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : 1;
-  const prevRev = previousDoc && previousDoc.meta && typeof previousDoc.meta.revision === "number" ? previousDoc.meta.revision : void 0;
-  const versions = [];
-  if (previousDoc)
-    versions.push({ v: prevRev, revision: prevRev, doc: previousDoc });
-  versions.push({ v: currentRev, revision: currentRev, doc });
-  return {
-    "GET /api/review": () => ({
-      json: {
-        plan: doc,
-        doc,
-        origin: "planos-review",
-        previousPlan: previousDoc || null,
-        versionInfo: {
-          revision: currentRev,
-          previousRevision: prevRev ?? null,
-          versions: versions.map((x) => ({ v: x.v, revision: x.revision }))
-        }
-      }
-    }),
-    "GET /api/review/versions": () => ({
-      json: { versions: versions.map((x) => ({ v: x.v, revision: x.revision })) }
-    }),
-    "GET /api/review/version": (req) => {
-      let v;
-      try {
-        const u = new URL(req.url, "http://127.0.0.1");
-        v = u.searchParams.get("v");
-      } catch {
-        v = null;
-      }
-      const want = v == null ? currentRev : Number(v);
-      const match = versions.find((x) => x.v === want);
-      if (!match) return { status: 404, json: { error: "no such revision" } };
-      return { json: { plan: match.doc } };
-    }
-  };
-}
-function deriveReviewResult(doc) {
-  const blocks = doc && Array.isArray(doc.blocks) ? doc.blocks : [];
-  const hunkVerdicts = [];
-  const comments = [];
-  for (const b of blocks) {
-    if (!b || b.kind !== "diff") continue;
-    const path = typeof b.path === "string" ? b.path : void 0;
-    const cs = Array.isArray(b.comments) ? b.comments : [];
-    for (const c of cs) {
-      if (!c || typeof c !== "object") continue;
-      const entry = {
-        blockId: typeof b.id === "string" ? b.id : String(b.id ?? ""),
-        ...path !== void 0 ? { path } : {},
-        commentId: typeof c.commentId === "string" ? c.commentId : String(c.commentId ?? ""),
-        hunkId: typeof c.hunkId === "string" ? c.hunkId : null,
-        verdict: c.verdict === "accept" || c.verdict === "reject" || c.verdict === "comment" ? c.verdict : "comment",
-        text: typeof c.text === "string" ? c.text : ""
-      };
-      comments.push(entry);
-      if (entry.hunkId !== null) {
-        hunkVerdicts.push({
-          blockId: entry.blockId,
-          ...path !== void 0 ? { path } : {},
-          hunkId: entry.hunkId,
-          verdict: entry.verdict,
-          commentId: entry.commentId,
-          text: entry.text
-        });
-      }
-    }
-  }
-  const hasRejections = hunkVerdicts.some((h) => h.verdict === "reject") || comments.some((c) => c.verdict === "reject");
-  return { overall: "approve", hasRejections, hunkVerdicts, comments };
-}
-async function handleReview(options = {}) {
-  const {
-    decisionProvider,
-    stdinText,
-    stdinOpts = {},
-    degradeOpts = {},
-    previousDoc,
-    finishOverride
-  } = options;
-  const scripted = typeof decisionProvider === "function";
-  const openBrowser = typeof options.openBrowser === "function" ? options.openBrowser : scripted ? () => {
-  } : openBrowserReal;
-  const raw = typeof stdinText === "string" ? stdinText : await readStdin(stdinOpts);
-  const planText = extractPlan(raw);
-  const reviewDegradeOpts = { type: "diff-review", ...degradeOpts };
-  const doc = planToDocument(planText, reviewDegradeOpts);
-  const serveHtml = scripted ? "<!doctype html><html><body><!-- planos review scripted/harness mode: no SPA --></body></html>" : buildSpaHtml(doc);
-  const apiHandlers = scripted ? {} : buildReviewApiHandlers(doc, previousDoc);
-  const { decisionPromise, finish } = await startServer({
-    onReady: (url) => {
-      openBrowser(url);
-      if (scripted) decisionProvider({ url, doc });
-    },
-    serveHtml,
-    apiHandlers
-  });
-  const resolved = await decisionPromise;
-  const decision = buildDecision(doc, resolved);
-  let output;
-  if (decision.behavior === "deny") {
-    output = toPermissionRequestOutput(decision);
-  } else {
-    const result = deriveReviewResult(doc);
-    output = {
-      hookSpecificOutput: {
-        hookEventName: "ReviewRoundTrip",
-        decision: { behavior: "allow" },
-        review: {
-          documentId: doc.id,
-          revision: doc && doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : 1,
-          // R2 = ephemeral: the review is NEVER persisted.
-          persisted: false,
-          overall: result.overall,
-          hasRejections: result.hasRejections,
-          hunkVerdicts: result.hunkVerdicts,
-          comments: result.comments
         }
       }
     };
@@ -2653,25 +1859,13 @@ async function handleExport(options = {}) {
 var subcommand = process.argv[2];
 if (!subcommand) {
   process.stderr.write(
-    "Usage: planos <subcommand>\nSubcommands: enter, exit, prd, review, export\n"
+    "Usage: planos <subcommand>\nSubcommands: prd, export\n"
   );
   process.exit(1);
 }
 switch (subcommand) {
-  case "enter": {
-    await handleEnter();
-    break;
-  }
-  case "exit": {
-    await handleExit();
-    break;
-  }
   case "prd": {
     await handlePrd();
-    break;
-  }
-  case "review": {
-    await handleReview();
     break;
   }
   case "export": {

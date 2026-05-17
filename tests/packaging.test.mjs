@@ -179,9 +179,9 @@ test('package.json declares NO runtime dependencies (zero-dep invariant)', () =>
 // plugin/bin/planos — dispatch intact (no regression)
 // ---------------------------------------------------------------------------
 
-test('plugin/bin/planos still dispatches enter|exit|prd|review|export', () => {
+test('plugin/bin/planos still dispatches prd|export (PRD-only, ADR-0007)', () => {
   const bin = readFileSync(PLANOS_BIN, 'utf8');
-  for (const sub of ['enter', 'exit', 'prd', 'review', 'export']) {
+  for (const sub of ['prd', 'export']) {
     // plugin/bin/planos is now an esbuild bundle of src/bin/planos-entry.mjs
     // (ADR-0006); esbuild normalizes string literals to double quotes, so the
     // dispatch is `case "<sub>":`. Quote-agnostic assertion keeps the
@@ -200,13 +200,7 @@ test('src/bin/planos-entry.mjs is the static-import SOURCE dispatcher (bundle in
     'src/bin/planos-entry.mjs must exist — it is the AC-17-audited esbuild input',
   );
   const src = readFileSync(entry, 'utf8');
-  for (const fn of [
-    'handleEnter',
-    'handleExit',
-    'handlePrd',
-    'handleReview',
-    'handleExport',
-  ]) {
+  for (const fn of ['handlePrd', 'handleExport']) {
     assert.ok(
       new RegExp(`import \\{ ${fn} \\} from '\\.\\./hook/`).test(src),
       `source dispatcher must STATICALLY import ${fn} (no dynamic import — bundleable)`,

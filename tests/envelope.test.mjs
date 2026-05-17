@@ -25,7 +25,7 @@ import {
   ENVELOPE_DECISIONS,
   EDIT_OPS,
 } from '../src/schema/envelope.mjs';
-import { buildDecision, buildReviseMessage } from '../src/hook/exit.mjs';
+import { buildDecision, buildReviseMessage } from '../src/hook/prd-runtime.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -290,7 +290,7 @@ test('AC-5: buildDecision (envelope, baseRevision match) → deny w/ all 4 parts
   assert.equal(d.guard.stale, false, 'guard reports applied path');
   const m = d.message;
   // 1. tuned directive preamble
-  assert.ok(m.includes('YOUR PLAN WAS NOT APPROVED'), 'tuned directive preamble');
+  assert.ok(m.includes('YOUR PRD WAS NOT APPROVED'), 'tuned directive preamble');
   // 2. each op rendered human-readably
   assert.ok(m.includes('EDIT block `t1`'));
   assert.ok(m.includes('DELETE block `p1`'));
@@ -313,7 +313,7 @@ test('AC-5/AC-10: stale envelope → STALE directive, NO rendered ops, re-render
   assert.equal(d.guard.action, 're-render');
   const m = d.message;
   assert.ok(m.includes('STALE'), 'stale directive present');
-  assert.ok(m.includes('Re-emit the FULL v1 block document below UNCHANGED'), 're-render instruction');
+  assert.ok(m.includes('Re-emit the FULL v2 block document below UNCHANGED'), 're-render instruction');
   // Stale ops MUST NOT be rendered (would mislead the agent into mutating).
   assert.ok(!m.includes('EDIT block `t1`'), 'stale ops NOT rendered');
   assert.ok(!m.includes('DELETE block `p1`'), 'stale ops NOT rendered');
@@ -348,7 +348,7 @@ test('backward-compat: buildDecision with no envelope → US-008 thin-loop path'
 
 test('backward-compat: buildReviseMessage(doc, feedback) 2-arg shape unchanged', () => {
   const m = buildReviseMessage(DOC, 'feedback only');
-  assert.ok(m.includes('YOUR PLAN WAS NOT APPROVED'));
+  assert.ok(m.includes('YOUR PRD WAS NOT APPROVED'));
   assert.ok(m.includes('feedback only'));
   assert.ok(m.includes('| id | kind | title |'));
   assert.ok(!m.includes('## Requested changes'), 'no ops rendering without envelope arg');
