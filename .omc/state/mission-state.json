@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-05-17T10:59:39.261Z",
+  "updatedAt": "2026-05-17T11:10:45.235Z",
   "missions": [
     {
       "id": "session:e199d19f-1e00-4466-bd5c-6e525b235d13:none",
@@ -7,15 +7,15 @@
       "name": "none",
       "objective": "Session mission",
       "createdAt": "2026-05-17T09:35:42.670Z",
-      "updatedAt": "2026-05-17T10:59:39.261Z",
+      "updatedAt": "2026-05-17T11:10:45.235Z",
       "status": "done",
-      "workerCount": 7,
+      "workerCount": 9,
       "taskCounts": {
-        "total": 7,
+        "total": 9,
         "pending": 0,
         "blocked": 0,
         "inProgress": 0,
-        "completed": 7,
+        "completed": 9,
         "failed": 0
       },
       "agents": [
@@ -88,33 +88,29 @@
           "latestUpdate": "completed",
           "completedSummary": null,
           "updatedAt": "2026-05-17T10:59:39.261Z"
+        },
+        {
+          "name": "executor:a949e71",
+          "role": "executor",
+          "ownership": "a949e7109b1cdb98d",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-05-17T11:10:45.235Z"
+        },
+        {
+          "name": "code-reviewer:a919e52",
+          "role": "code-reviewer",
+          "ownership": "a919e52b5227bec6d",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-05-17T11:05:29.552Z"
         }
       ],
       "timeline": [
-        {
-          "id": "session-start:ab35d58e946f0113f:2026-05-17T10:46:59.138Z",
-          "at": "2026-05-17T10:46:59.138Z",
-          "kind": "update",
-          "agent": "executor:ab35d58",
-          "detail": "started executor:ab35d58",
-          "sourceKey": "session-start:ab35d58e946f0113f"
-        },
-        {
-          "id": "session-stop:ab35d58e946f0113f:2026-05-17T10:52:28.967Z",
-          "at": "2026-05-17T10:52:28.967Z",
-          "kind": "completion",
-          "agent": "executor:ab35d58",
-          "detail": "completed",
-          "sourceKey": "session-stop:ab35d58e946f0113f"
-        },
-        {
-          "id": "session-start:a3a5f922880ef2ce2:2026-05-17T10:54:06.988Z",
-          "at": "2026-05-17T10:54:06.988Z",
-          "kind": "update",
-          "agent": "executor:a3a5f92",
-          "detail": "started executor:a3a5f92",
-          "sourceKey": "session-start:a3a5f922880ef2ce2"
-        },
         {
           "id": "session-stop:a3a5f922880ef2ce2:2026-05-17T10:59:39.261Z",
           "at": "2026-05-17T10:59:39.261Z",
@@ -122,6 +118,38 @@
           "agent": "executor:a3a5f92",
           "detail": "completed",
           "sourceKey": "session-stop:a3a5f922880ef2ce2"
+        },
+        {
+          "id": "session-start:a949e7109b1cdb98d:2026-05-17T11:01:10.479Z",
+          "at": "2026-05-17T11:01:10.479Z",
+          "kind": "update",
+          "agent": "executor:a949e71",
+          "detail": "started executor:a949e71",
+          "sourceKey": "session-start:a949e7109b1cdb98d"
+        },
+        {
+          "id": "session-start:a919e52b5227bec6d:2026-05-17T11:01:29.693Z",
+          "at": "2026-05-17T11:01:29.693Z",
+          "kind": "update",
+          "agent": "code-reviewer:a919e52",
+          "detail": "started code-reviewer:a919e52",
+          "sourceKey": "session-start:a919e52b5227bec6d"
+        },
+        {
+          "id": "session-stop:a919e52b5227bec6d:2026-05-17T11:05:29.552Z",
+          "at": "2026-05-17T11:05:29.552Z",
+          "kind": "completion",
+          "agent": "code-reviewer:a919e52",
+          "detail": "completed",
+          "sourceKey": "session-stop:a919e52b5227bec6d"
+        },
+        {
+          "id": "session-stop:a949e7109b1cdb98d:2026-05-17T11:10:45.235Z",
+          "at": "2026-05-17T11:10:45.235Z",
+          "kind": "completion",
+          "agent": "executor:a949e71",
+          "detail": "completed",
+          "sourceKey": "session-stop:a949e7109b1cdb98d"
         }
       ]
     }

@@ -1,5 +1,12 @@
 # Markdown Export — Out-of-Blocking-Path / AC-17 Boundary Note
 
+> **Historical context.** This note was written before ADR-0007 (PRD-only consolidation).
+> References to `bin/planos exit`, `bin/planos review`, `handleExit`, `handleReview`, and the
+> v3 `diff` kind describe paths that were removed. The export feature (`bin/planos export`,
+> `src/export/markdown.mjs`) still exists and the AC-17 negative-proof argument still holds
+> for `bin/planos prd` — the only remaining blocking entrypoint. The `ac17Roots()` set and
+> the negative-proof LAYER 1b assertion are in `tests/ac17-invariant.test.mjs`.
+
 **Phase 4 / Milestone Q5, Step Q5.2**  
 **Related:** `src/export/markdown.mjs`, `src/hook/export.mjs`, `plugin/bin/planos` (`export` case), `src/editor/export.tsx`, `docs/design.md §9`, `docs/design.md §10`, phase4 plan §3.2 (the export surfaces), §3.5 (`bin/planos export` out-of-blocking-path CLI), §4 (the AC-17 boundary analysis — THE Phase-4 crux), §6 (AC-Q4, AC-Q5, AC-Q6, AC-Q12), §10 Q3 (markdown-export boundary, Resolved), Resolved Decision Q3 (pure serializer, SPA-download + out-of-blocking-path CLI, NEVER imported by a blocking handler). Parallel to: `docs/notes/planos-review-command.md` (the Phase-3-R1 doctrine this mirrors).
 

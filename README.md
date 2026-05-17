@@ -51,11 +51,26 @@ development-only concern; see [Building the editor](#building-the-editor-dev-onl
 ## The PRD flow
 
 planos is a **single flow — PRD** (ADR-0007). The earlier plan-mode and
-diff-review flows were removed in M1.
+diff-review flows were removed.
 
 | Mode | Trigger | How it works |
 |---|---|---|
-| **PRD** | `/planos-prd [topic]` slash command | The `/planos-prd` command runs a brief interview, authors a v2 structured-block PRD, and pipes it to `planos prd` over stdin. The blocking CLI boots the local-server round-trip; the PRD opens in the editor; your structured feedback is fed back and the agent revises until approved. Each approval persists an immutable revision to a `prds/`-style directory. **No `ExitPlanMode`/`EnterPlanMode` hook is involved.** |
+| **PRD** | `/planos-prd [topic]` slash command | The `/planos-prd` command runs a brief interview, authors a v2 structured-block PRD, and pipes it to `planos prd` over stdin. The blocking CLI boots the local-server round-trip; the PRD opens in the rich editor; your structured feedback is fed back and the agent revises until approved. Each approval persists an immutable revision to a `prds/`-style directory. No hooks involved — invoked via CLI only. |
+
+### Rich interactive editor
+
+The SPA editor provides a fully interactive review experience:
+
+- **Per-kind edit modals** — structured field editing for all 13 block kinds (section, prose, objective, task, decision, risk, openQuestion, phase, tradeoff, fileChange, code, table, diagram).
+- **TipTap / ProseMirror WYSIWYG prose editor** — rich text editing for `prose` blocks (bold, italic, lists, headings) — bundled offline, no CDN.
+- **Editable table grid** — inline cell editing for `table` blocks.
+- **Mermaid diagram editor** — edit and live-preview `diagram` blocks.
+- **Add / delete blocks** — insert new blocks at any position or remove existing ones; IDs are stable and never renumbered.
+- **Drag-and-drop block reorder** — native HTML5 drag-drop with full keyboard accessibility (arrow keys + Space/Enter).
+- **Advisory feedback on Approve** — reviewer comments and global notes are forwarded to the agent as advisory context even on Approve (M2 semantics); they never block the approval itself.
+- **Edited-revision persistence** — on Approve, the working document (with all reviewer edits applied) is persisted as the next immutable revision, not just the raw agent output (M3 semantics).
+
+Reviewer edits are folded into a working document by `deriveWorkingDoc(baseDoc, {edits, answers, deletes, adds, order})` — see [§4 of `docs/design.md`](docs/design.md) for the compose contract.
 
 ### Markdown export
 

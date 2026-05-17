@@ -1,5 +1,13 @@
 # AC-17 Invariant — Allow/Deny Boundary
 
+> **Historical context.** This note was written before ADR-0007 (PRD-only consolidation).
+> References to `bin/planos exit`, `ExitPlanMode`, `/planos-plan`, and `handleExit` describe
+> the plan-mode hook path that was removed. The invariant itself — no model call / network
+> egress / agent spawn inside the blocking path — still holds for `bin/planos prd` (the only
+> remaining blocking round-trip). The authoritative current statement is in ADR-0007 and
+> `docs/adr/0007-consolidate-prd-only.md`. The test enforcement is in
+> `tests/ac17-invariant.test.mjs`.
+
 **US-021 / Milestone 4, Step 4.2**
 **Related:** consensus plan AC-16/AC-17, `docs/design.md §4, §5`,
 `docs/notes/planos-plan-command.md`, `tests/ac17-invariant.test.mjs`,

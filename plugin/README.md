@@ -33,8 +33,9 @@ planos is a **single flow — PRD** (ADR-0007).
 |---|---|
 | **PRD** | `/planos-prd [topic]` slash command → `planos prd` (blocking CLI, stdin) |
 
-There is **no `ExitPlanMode`/`EnterPlanMode` hook** — the PRD is invoked by the
-command running the CLI directly.
+The PRD is invoked by the command running the CLI directly — no hooks involved.
+
+**Rich interactive editor:** the SPA provides per-kind edit modals for all 13 block kinds, a TipTap/ProseMirror WYSIWYG prose editor (bundled offline), an editable table grid, a Mermaid diagram editor, add/delete blocks, native HTML5 drag-and-drop block reorder with keyboard accessibility, advisory feedback forwarded on Approve (M2), and edited-revision persistence on Approve (M3 — the working doc with reviewer edits becomes the next immutable revision).
 
 **Markdown export:** `bin/planos export < document.json > document.md` — out of
 the blocking path by construction (no server, no round-trip, no block). Export is

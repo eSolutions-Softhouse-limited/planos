@@ -42,8 +42,8 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; npx tsc --noEmit -p . > /tmp/tsc5.log 2>&1; echo \"tsc exit=$? lines=$(wc -l </tmp/tsc5.log)\"; cat /tmp/tsc5.log; echo \"--- App.tsx:163-172 ---\"; sed -n '163,172p' src/editor/App.tsx",
-    "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
+    "buildCommand": "ls tests/*.mjs | wc -l; echo \"---run all---\"; pass=0; fail=0; for f in tests/*.test.mjs; do out=$(node \"$f\" 2>&1); if echo \"$out\" | grep -qE \"[1-9][0-9]* failed|Error:|throw\"; then echo \"POSSIBLE FAIL: $f\"; echo \"$out\" | tail -3; fail=$((fail+1)); else pass=$((pass+1)); fi; done; echo \"files-ok=$pass files-flagged=$fail\"; echo \"---tsc---\"; npx tsc -p . --noEmit 2>&1 | tail -5",
+    "testCommand": "npm test 2>&1 | tail -30",
     "lintCommand": null,
     "devCommand": null,
     "scripts": {
@@ -141,21 +141,21 @@
       "type": "file"
     },
     {
+      "path": "docs/design.md",
+      "accessCount": 29,
+      "lastAccessed": 1779016161822,
+      "type": "file"
+    },
+    {
       "path": "src/hook/exit.mjs",
       "accessCount": 24,
       "lastAccessed": 1779011154447,
       "type": "file"
     },
     {
-      "path": "docs/design.md",
-      "accessCount": 14,
-      "lastAccessed": 1779012528158,
-      "type": "file"
-    },
-    {
       "path": "src/server/index.mjs",
-      "accessCount": 9,
-      "lastAccessed": 1779013397105,
+      "accessCount": 10,
+      "lastAccessed": 1779015710877,
       "type": "file"
     },
     {

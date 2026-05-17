@@ -7,7 +7,7 @@
 > Status: **DESIGN.** Distribution: **standalone plugin repo** (this repo —
 > `esolutions.gr/planos`).
 
-> **⚠ M1 / ADR-0007 — PRD-only consolidation.** planos was reduced to a SINGLE
+> **⚠ ADR-0007 — PRD-only consolidation (M1).** planos was reduced to a SINGLE
 > flow: **PRD**. The plan flow (the `ExitPlanMode`/`EnterPlanMode` roundtrip)
 > and the diff-review flow were **removed** (no ExitPlanMode/EnterPlanMode
 > hooks, no `diff` block kind, no `diff-review` document type). The PRD is
@@ -17,6 +17,16 @@
 > v3 `diff` kind are **historical context** (kept to explain WHY the
 > single-flow shape was chosen); the authoritative current behaviour is
 > PRD-only. See `docs/adr/0007-consolidate-prd-only.md`.
+>
+> **Rich editor (M2–M5).** After consolidation, the SPA editor was substantially
+> extended: M2 — advisory reviewer feedback forwarded on Approve; M3 — reviewer
+> edits become the persisted revision (working-doc transport); M4 — per-kind edit
+> modals for all 13 block kinds, editable table grid, Mermaid diagram editor,
+> add/delete blocks, TipTap/ProseMirror WYSIWYG prose editor (M4b, bundled
+> offline); M5 — native HTML5 drag-drop block reorder with keyboard a11y. The
+> single fold-back site is `src/editor/workingDoc.impl.mjs`
+> `deriveWorkingDoc(baseDoc, {edits, answers, deletes, adds, order})`. See §4b
+> for the full compose contract.
 
 ---
 
@@ -79,32 +89,60 @@ plugin published from `apps/hook/`).
 
 ## 3. Architecture Overview
 
+> **Historical context — plan-mode loop (removed, ADR-0007):** The original
+> design intercepted `ExitPlanMode` via a `PermissionRequest` hook. This is kept
+> here to explain the design lineage; it no longer exists in the codebase.
+>
+> ```
+> ┌─ EnterPlanMode (PreToolUse, fast) ──────────────────────────────┐
+> │  inject block schema + authoring example as additionalContext   │
+> └─────────────────────────────────────────────────────────────────┘
+>                               │ agent authors structured doc
+>                               ▼
+>         agent calls ExitPlanMode (tool_input.plan = our JSON or markdown)
+>                               │
+> ┌─ ExitPlanMode (PermissionRequest, 96h timeout) ─────────────────┐
+> │  1. read hook JSON from stdin                                   │
+> │  2. parse + validate / prose-fallback                           │
+> │  3. load previous version → compute structural diff             │
+> │  4. render SPA, boot localhost server, open browser             │
+> │  5. BLOCK on decisionPromise                                    │
+> │  6. user edits / approves / revises                             │
+> │  7. browser POSTs feedback envelope                             │
+> │  8. emit PermissionRequest decision JSON on stdout              │
+> │  9. sleep(1500) → server.stop() → exit(0)                       │
+> └─────────────────────────────────────────────────────────────────┘
+>                               │ deny.message → agent revises → loop
+> ```
+
+**Current architecture — PRD-only (ADR-0007):**
+
 ```
-┌─ EnterPlanMode (PreToolUse, fast) ──────────────────────────────┐
-│  inject block schema + authoring example as additionalContext   │
-└─────────────────────────────────────────────────────────────────┘
-                              │ agent authors structured doc
-                              ▼
-        agent calls ExitPlanMode (tool_input.plan = our JSON or markdown)
-                              │
-┌─ ExitPlanMode (PermissionRequest, 96h timeout) ─────────────────┐
-│  1. read hook JSON from stdin                                   │
-│  2. parse tool_input.plan:                                      │
-│       valid block doc → use it                                  │
-│       invalid/plain md → deterministic wrap in single prose blk  │
-│  3. load previous version → compute structural diff             │
-│  4. render single-file SPA, boot localhost server, open browser │
-│  5. BLOCK on decisionPromise (up to 96h)                         │
-│  6. user edits blocks / answers questions / comments / approves  │
-│  7. browser POSTs structured feedback envelope                   │
-│  8. resolve → emit PermissionRequest decision JSON on stdout:    │
-│       approve → behavior:"allow"                                 │
-│       revise  → behavior:"deny", message = directive + envelope  │
-│  9. sleep(1500) → server.stop() → exit(0)                        │
-└─────────────────────────────────────────────────────────────────┘
-                              │ deny.message
-                              ▼
-        agent revises structured doc, re-calls ExitPlanMode → loop
+User types /planos-prd [topic]
+      ↓
+Live agent: Socratic interview in the terminal        ← OUTSIDE blocking path
+      ↓
+Agent authors v2 PRD block document JSON              ← OUTSIDE blocking path
+      ↓
+Agent pipes JSON to: node bin/planos prd ─────────────┐ blocking path begins
+      ↓                                               │
+src/hook/prd.mjs: read stdin, validate, start server  │  no model call
+      ↓                                               │
+Browser opens — SPA editor renders working doc         │  no model call
+      ↓                                               │
+User edits blocks (per-kind modals, TipTap prose,     │  no model call
+  table grid, Mermaid editor, add/delete, reorder)    │
+      ↓                                               │
+Browser POSTs feedback envelope (approve or revise)   │  no model call
+      ↓                                               │
+  approve → deriveWorkingDoc applied → working doc    │
+            persisted as next revision (M3)           │
+            advisory feedback forwarded (M2)          │
+  revise  → deny message = directive + envelope       │
+      ↓                                               │
+server.stop() → exit(0) ──────────────────────────────┘ blocking path ends
+      ↓
+Agent revises structured doc, re-pipes → loop
 ```
 
 **One entry mode, one engine (ADR-0007 — PRD-only):**
@@ -189,6 +227,62 @@ spell out the changes *and* hand it the structure.
 
 ---
 
+## 4b. Working-Document Compose Contract (`deriveWorkingDoc`)
+
+The SPA accumulates reviewer interactions into an **editor state** and folds them back into a
+single canonical working document at the moment of Approve or Revise. This is done by
+`deriveWorkingDoc(baseDoc, editorState)` in `src/editor/workingDoc.impl.mjs` — the **single
+fold-back site** for all editor interaction state.
+
+```
+deriveWorkingDoc(baseDoc, {
+  edits?,    // Record<blockId, Partial<Block>> — field patches for any kind
+  answers?,  // Record<blockId, string>         — openQuestion answer field
+  deletes?,  // string[] | Set<string>          — block ids to remove
+  adds?,     // Array<{ afterId: string|null, block }> — positional inserts
+  order?,    // string[]                        — desired block sequence (M5)
+}) → Document   // new Document; baseDoc is untouched
+```
+
+**Compose contract (applied in this order):**
+
+1. **edits** — field patches are merged shallowly over any block of any kind. An empty patch
+   is a no-op (the block passes through byte-unchanged, so a review with no structural edits
+   yields a working doc canonically equal to the base — the no-op correctness the PRD path
+   relies on to skip a spurious revision).
+2. **answers** — applied only to `openQuestion` blocks: sets the `answer` field. A stray
+   answer keyed at a non-openQuestion block is ignored — it rides the advisory envelope, never
+   corrupts the structural doc.
+3. **deletes** — listed block ids are dropped. Nothing else renumbers. `deletes` takes priority
+   over `order` (a deleted id listed in `order` is skipped, never resurrected).
+4. **adds** — each entry is spliced in after `afterId` (`null` → prepend; unknown id →
+   append; never silently dropped). Added blocks are id-stable: a caller-supplied non-empty
+   string id is honoured verbatim; otherwise `mintAddedBlockId(existingIds)` deterministically
+   mints a collision-free `b<n>` id seeded past the highest existing `b<n>`, so a fresh add
+   never collides with — and never renumbers — an agent-authored id. Ordering of multiple adds
+   at the same anchor preserves insertion order.
+5. **order** (M5) — applied LAST, as a pure permutation of the post-(delete+add) block list.
+   Rules:
+   - Live blocks whose id appears in `order` are emitted in `order`'s sequence (first
+     occurrence wins; duplicate ids ignored).
+   - A live block id NOT in `order` is never dropped — it is re-appended keeping its original
+     post-splice relative position, after the ordered ones. So a partial `order` of just the
+     moved ids works; an empty/absent `order` is a byte no-op.
+   - An id in `order` that is not live (deleted, or never existed) is skipped.
+   - A pure reorder yields the SAME block objects (id-stable, byte-equal per block) in a new
+     sequence; the produced doc stays `validateDocument`-clean and canonical.
+
+**M2 advisory feedback seam:** `comment` ops and `globalComment` in the envelope are
+advisory — they are NOT applied by `deriveWorkingDoc` and do NOT become structural document
+content. On Approve they are forwarded to the agent as context; they never block approval.
+
+**M3 edited-revision persistence seam:** on Approve, the server calls `deriveWorkingDoc` with
+the full editor state received from the browser and persists the resulting working document as
+the next immutable revision (not the raw agent-authored doc). This means reviewer edits made
+in the SPA survive Approve and become the canonical next revision.
+
+---
+
 ## 5. Authoring Model — Decided
 
 **Decision: native structured authoring via injected schema instructions, with a
@@ -197,32 +291,33 @@ conversion, and LLM-driven hybrid.
 
 ### Why (evidence-based)
 
-- **plannotator precedent:** the `EnterPlanMode` PreToolUse hook reliably injects authoring
-  context (`additionalContext`); their opt-in "PFM reminder" shows agents *do* follow injected
-  format guidance. Same mechanism, stricter target.
+- **plannotator precedent:** plannotator's `EnterPlanMode` PreToolUse hook (historical,
+  removed in ADR-0007) reliably injected authoring context; their opt-in "PFM reminder"
+  showed agents *do* follow injected format guidance. The PRD command (`/planos-prd`) achieves
+  the same effect via the command prompt itself, which delivers the v2 block schema and a
+  worked example to the agent as part of the slash-command instruction.
 - **Post-hoc LLM conversion is the worst option here.** It (1) adds a non-deterministic model
-  call *inside the user-blocking hook*, (2) produces different block IDs across iterations —
+  call *inside the user-blocking path*, (2) produces different block IDs across iterations —
   which breaks revision chaining, annotation anchoring, and structural diff (the exact things
   structure exists to provide), and (3) means the agent never sees the structure it
   "authored." plannotator's entire architecture exists to avoid a conversion layer; we keep
   that discipline.
-- **Pure native authoring alone is fragile** — `tool_input.plan` is a free-text field; the
-  agent will occasionally emit prose. We discover this *inside* the blocked hook.
+- **Pure native authoring alone is fragile** — the agent will occasionally emit prose. The
+  deterministic fallback handles this without blocking the user.
 
 ### The fallback is a parser, not a model
 
-If `tool_input.plan` fails schema validation: wrap the raw text in a single
+If the piped JSON fails schema validation: wrap the raw text in a single
 `{ kind: "prose", md: <raw> }` block, mark `meta.degraded = true`, render normally. The user
-is **never blocked by malformed output**; the UI shows a "this plan wasn't structured —
-ask the agent to re-emit" affordance. Deterministic, fast, ID-stable. This is the defensible
-middle ground — a hybrid whose seam is deterministic, not LLM-driven.
+is **never blocked by malformed output**; the UI shows a "this PRD wasn't structured —
+ask the agent to re-emit" affordance. Deterministic, fast, ID-stable.
 
-### Reinforcement at two layers (mirrors plannotator's two-hook split)
+### Reinforcement at two layers
 
-1. **Proactive** — `EnterPlanMode` PreToolUse injects the schema + a worked example as
-   `additionalContext`.
+1. **Proactive** — the `/planos-prd` command prompt delivers the v2 block schema + a worked
+   example so the agent authors valid structure on the first attempt.
 2. **Corrective** — on validation failure, the `deny.message` names exactly which blocks were
-   malformed and how to fix them, reusing the proven deny→revise loop. The agent converges on
+   malformed and how to fix them, reusing the deny→revise loop. The agent converges on
    valid structure over iterations with zero conversion model.
 
 ---
@@ -248,8 +343,9 @@ Mitigations, in order of reliance:
 4. **Race guard.** `baseRevision` in the envelope: if the agent revised while the human was
    editing, detect mismatch and re-render rather than apply stale ops.
 
-This is the single biggest design risk and the area to prototype first (see §9 Phase 1 exit
-criteria). plannotator dodges it entirely by never having IDs; we cannot.
+This was the single biggest design risk. It was validated in the initial implementation
+milestone: `opaque` IDs (ADR-0001) proved stable at 100% preservation across realistic
+prompts. plannotator dodges it entirely by never having IDs; we cannot.
 
 ---
 
@@ -277,17 +373,18 @@ planos/
 │   └── marketplace.json          # { plugins: [{ name, source: "./plugin" }] }
 ├── plugin/
 │   ├── .claude-plugin/plugin.json
-│   ├── hooks/hooks.json          # EnterPlanMode (inject) + ExitPlanMode (block)
 │   ├── commands/
-│   │   ├── planos-prd.md
-│   │   └── planos-review.md
-│   ├── bin/planos                # CLI entrypoint (hook + command dispatch)
+│   │   └── planos-prd.md         # /planos-prd slash command (no hooks.json — PRD-only)
+│   ├── bin/planos                # CLI entrypoint (prd + export dispatch)
 │   └── dist/index.html           # prebuilt single-file SPA (committed)
 ├── src/
 │   ├── server/                   # local blocking server (Node http)
 │   ├── schema/                   # block schema + validator (the contract)
 │   ├── diff/                     # structural diff
-│   └── editor/                   # React SPA (Vite + viteSingleFile)
+│   ├── prd/                      # PRD persistence (immutable revision store)
+│   ├── export/                   # markdown serializer (out-of-blocking-path)
+│   └── editor/                   # React + TipTap SPA (Vite + viteSingleFile)
+│       └── workingDoc.impl.mjs   # deriveWorkingDoc — single fold-back site
 ├── docs/
 │   └── design.md                 # this document
 └── tests/
@@ -295,49 +392,60 @@ planos/
 
 ### Tech stack decision
 
-- **Runtime: Node 20+** (not Bun). Rationale: Node is more universally present on
-  contributors'/users' machines than Bun; Node's built-in `http` server covers the
-  round-trip with zero runtime deps. plannotator chose Bun for a compiled single binary +
-  installer; we trade that for **lower install friction** (prebuilt HTML committed, CLI is a
-  plain Node script). Revisit Bun in Phase 4 if a single binary is wanted.
-- **SPA: React 19 + Vite + `vite-plugin-singlefile`.** Built at dev time, output
-  (`plugin/dist/index.html`) committed so install needs no build step.
-- **Schema validation: Zod** (or a hand-rolled validator if we want zero deps in the
-  blocking path — decide in Phase 1).
+- **Runtime: Node 20+** (not Bun). Node's built-in `http` server covers the round-trip with
+  zero runtime deps. The committed `plugin/dist/index.html` and `plugin/bin/planos` script
+  mean no build step for end users. Bun single-binary is deferred post-1.0.0 (ADR-0004 Q5).
+- **SPA: React 19 + Vite + `vite-plugin-singlefile` + TipTap/ProseMirror (M4b).** Built at
+  dev time, output (`plugin/dist/index.html`) committed so install needs no build step.
+  TipTap is a build-time dependency only — fully bundled offline, no CDN at runtime.
+- **Schema validation: hand-rolled validator** (`src/schema/validate.mjs`) — zero runtime
+  dependencies on the blocking path (ADR-0000).
 
 ---
 
-## 9. Phasing & Exit Criteria
+## 9. Phasing & Delivered State
 
-### Phase 1 — Prove the loop + de-risk ID stability  *(highest priority)*
+> **Note:** The phasing below describes the original design plan. Phases 1–4 are COMPLETE.
+> Following consolidation (ADR-0007, M1), only the PRD flow exists; the plan-mode and
+> diff-review flows (Phases 1 and 3 below) were excised. The rich editor (M2–M5) was
+> delivered on top of Phase 2 (PRD mode). The current delivered state is documented here for
+> historical context.
 
-Plan mode only. Core block kinds (`section, prose, objective, task, decision, risk,
-openQuestion`). Native authoring + deterministic fallback. `EnterPlanMode` injection +
-`ExitPlanMode` blocking hook + localhost round-trip + structural diff on revision.
+### Phase 1 — Prove the loop + de-risk ID stability *(HISTORICAL — plan mode removed)*
 
-**Exit criteria (must all hold):**
-- Agent authors a valid block doc from injected schema on first try ≥ ~70% of realistic
-  prompts; malformed output degrades gracefully (never blocks the user).
-- Edit a task, answer an openQuestion, comment a block, hit "revise" → agent receives
-  structured feedback → revises → **block IDs preserved**, structural diff highlights exactly
-  what changed.
-- Approve → `behavior:"allow"`, agent proceeds normally.
-- Full loop works offline, no external network.
+> Plan mode (`ExitPlanMode` hook) was prototyped and then excised in ADR-0007. The ID
+> stability risk was validated: `opaque` IDs (ADR-0001) proved stable at 100% preservation.
+> The localhost round-trip, structural diff, deterministic fallback, and deny→revise loop
+> were all proven and carried forward into the PRD flow.
 
-### Phase 2 — PRD mode
+### Phase 2 — PRD mode *(DELIVERED)*
 
 `/planos-prd` command, full v2 block vocab (`phase, tradeoff, fileChange, code, table,
-diagram`), persistence to a PRD directory, multi-revision history browser.
+diagram`), persistence to a PRD revision store, multi-revision history browser. AC-17
+re-asserted for `bin/planos prd` (ADR-0002).
 
-### Phase 3 — Diff review
+### Phase 2 extension — Rich interactive editor *(DELIVERED, M2–M5)*
 
-`/planos-review` command, `diff` block kind, `gh` PR + local git range ingestion,
-per-hunk comment/accept/reject, structured review envelope.
+- **M2** — Advisory feedback forwarded on Approve; `baseRevision` race guard.
+- **M3** — Reviewer edits persist as next revision (`deriveWorkingDoc` working-doc transport).
+- **M4** — Per-kind edit modals for all 13 block kinds; editable table grid; Mermaid diagram
+  editor; add/delete blocks (id-stable, `mintAddedBlockId`).
+- **M4b** — TipTap/ProseMirror WYSIWYG prose editor bundled offline (no CDN).
+- **M5** — Native HTML5 drag-drop block reorder with keyboard a11y; `order` compose contract
+  (pure permutation, applied last, deletes-wins, partial-order safe, byte-no-op preserved).
 
-### Phase 4 — Polish & distribution
+### Phase 3 — Diff review *(HISTORICAL — removed in ADR-0007)*
 
-Themes, markdown/PDF export, optional Bun single-binary, optional encrypted local share
-(plannotator-style, opt-in), marketplace listing.
+> The `diff` block kind, `diff-review` document type, `gh`/`git` ingestion, and
+> `/planos-review` command were built and then excised in ADR-0007 (an explicit non-goal).
+> The v3 `diff` kind no longer exists.
+
+### Phase 4 — Polish & distribution *(DELIVERED)*
+
+Themes (light/dark/OS-auto), markdown export (SPA download + `bin/planos export` CLI, AC-17
+negative proof), PDF via `window.print()`, marketplace listing, `version` 1.0.0. Bun
+single-binary deferred (Q5). Encrypted local share deferred (Q6). Plannotator coexistence
+formally closed as infeasible-without-CC-primitive (Q7, ADR-0004).
 
 ---
 
@@ -345,25 +453,27 @@ Themes, markdown/PDF export, optional Bun single-binary, optional encrypted loca
 
 | Risk / question | Disposition |
 |---|---|
-| **Block-ID stability** (§6) | Top risk. Phase 1 exit criteria gate it. If instruction-based preservation proves unreliable, escalate the deterministic re-anchoring layer before adding modes. |
-| Agent emits prose despite injection | Covered by deterministic fallback; corrective deny loop converges it. Measure first-try valid rate. |
-| Schema too rigid → agent fights it | Keep v1 vocab minimal; `prose` is always a valid escape hatch. |
-| Schema too loose → no value over markdown | The structured task/decision/risk/openQuestion blocks are the value; prose is fallback only. |
-| 96h blocking hook UX | Inherited from plannotator; acceptable, well-trodden. |
-| Node vs Bun | Decided Node for friction; revisit Phase 4. |
+| **Block-ID stability** (§6) | **Resolved.** `opaque` IDs (ADR-0001) proved stable at 100% preservation across realistic prompts. The deterministic re-anchoring fallback exists but was not needed in practice. |
+| Agent emits prose despite injection | Covered by deterministic fallback; corrective deny loop converges it. |
+| Schema too rigid → agent fights it | `prose` is always a valid escape hatch; v2 vocab proven sufficient. |
+| Schema too loose → no value over markdown | The structured task/decision/risk/openQuestion/phase/tradeoff/table/diagram blocks are the value; prose is fallback only. |
+| Node vs Bun | **Resolved — Node.** Bun single-binary deferred post-1.0.0 (ADR-0004 Q5). |
 | Name | **Resolved — `planos`.** |
-| Repo location | **Resolved — `esolutions.gr/planos`, git-initialised, branch `main`.** |
-| Coexistence with plannotator installed (hook matcher collision on `ExitPlanMode`) | **Resolved (Phase 4, ADR-0004) — refuse-on-collision is the accepted permanent posture (`src/hook/coexistence.mjs` detect-and-refuse, escape hatch `PLANOS_ALLOW_COEXIST=1`). Full graceful coexistence is infeasible without a Claude Code cross-plugin coordination primitive that does not exist (no leader election / shared lock / ordering), and is explicitly out of scope (user-descoped). See `docs/notes/plannotator-coexistence-spike.md` + ADR-0004 Q7.** |
+| Repo location | **Resolved — `esolutions.gr/planos`, branch `main`.** |
+| Coexistence with plannotator (hook matcher collision on `ExitPlanMode`) | **Resolved (ADR-0004 Q7) — moot for the PRD-only flow (no hooks). The coexistence guard in `src/hook/coexistence.mjs` was removed along with the plan-mode hook path (ADR-0007).** |
+| Plan-mode / diff-review scope | **Resolved (ADR-0007) — excised. PRD is the single flow.** |
+| Rich editor transport race (M2) | **Resolved — `baseRevision` race guard in the feedback envelope; advisory comments forwarded on Approve, never blocking.** |
 
 ---
 
 ## 11. Summary
 
 We are not cloning plannotator. We are **inverting its core decision**: structure becomes the
-artifact instead of an overlay on markdown. plannotator's plumbing (hook topology, blocking
-local server, single-file build, deny-loop revision) is proven and reused; its data model,
-diff engine, and feedback envelope are deliberately *not* reused because they exist to cope
-with the absence of structure we are introducing. The authoring model is settled by evidence:
-native structured authoring with a deterministic fallback, never an LLM converter in the
-blocking path. The make-or-break technical risk is block-ID stability across agent revisions,
-and Phase 1 exists primarily to prove it.
+artifact instead of an overlay on markdown. plannotator's plumbing (blocking local server,
+single-file build, deny-loop revision) is proven and reused; its data model, diff engine, and
+feedback envelope are deliberately *not* reused because they exist to cope with the absence of
+structure we are introducing. The authoring model is native structured authoring with a
+deterministic fallback, never an LLM converter in the blocking path. The make-or-break
+technical risk — block-ID stability across agent revisions — was validated: `opaque` IDs are
+the production default and proved stable at 100% preservation. The design is complete and
+delivered as a PRD-only single flow with a rich interactive editor (M2–M5).
