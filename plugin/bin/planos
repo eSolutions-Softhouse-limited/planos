@@ -8,18 +8,20 @@ function bindFreePort(server) {
     let attempts = 0;
     function tryBind() {
       attempts += 1;
-      server.listen(0, "127.0.0.1", () => {
-        const { port } = server.address();
-        resolve3(port);
-      });
-      server.once("error", (err) => {
+      const onError = (err) => {
         if (err.code === "EADDRINUSE" && attempts < MAX_PORT_RETRIES) {
           server.removeAllListeners("error");
           tryBind();
         } else {
           reject(err);
         }
+      };
+      server.listen(0, "127.0.0.1", () => {
+        server.removeListener("error", onError);
+        const { port } = server.address();
+        resolve3(port);
       });
+      server.once("error", onError);
     }
     tryBind();
   });
@@ -784,6 +786,20 @@ function validateDocument(obj) {
     for (let i = 0; i < obj.blocks.length; i++) {
       validateBlock(obj.blocks[i], i, errors);
     }
+    const seenIds = /* @__PURE__ */ new Set();
+    for (let i = 0; i < obj.blocks.length; i++) {
+      const blk = obj.blocks[i];
+      if (!isObject(blk) || !isNonEmptyString(blk.id)) continue;
+      if (seenIds.has(blk.id)) {
+        errors.push(
+          `blocks[${i}].id ${show(
+            blk.id
+          )} is a duplicate — every block id must be unique across the document (block ids are the stable revision-chain key; reuse none verbatim more than once)`
+        );
+      } else {
+        seenIds.add(blk.id);
+      }
+    }
   }
   if (errors.length > 0) {
     return { ok: false, errors };
@@ -1271,7 +1287,8 @@ function buildApproveFeedbackMessage(doc, envelope) {
     renderEchoTable(doc)
   ].join("\n");
 }
-function buildDecision(doc, resolved) {
+function buildDecision(doc, resolved, opts = {}) {
+  const echoDoc = opts && opts.echoDoc && typeof opts.echoDoc === "object" ? opts.echoDoc : doc;
   if (!resolved || resolved.behavior !== "deny") {
     if (resolved) {
       const approveEnvelope = locateEnvelope(resolved);
@@ -1280,7 +1297,11 @@ function buildDecision(doc, resolved) {
         if (result2.ok && envelopeHasFeedback(result2.envelope)) {
           return {
             behavior: "allow",
-            message: buildApproveFeedbackMessage(doc, result2.envelope)
+            // MEDIUM-1: echo the PERSISTED doc's ids. On the reviewer-edited
+            // approve path `echoDoc` is the edited working doc that actually
+            // becomes the revision; the agent must REUSE those ids, not the
+            // stale pre-edit set.
+            message: buildApproveFeedbackMessage(echoDoc, result2.envelope)
           };
         }
       }
@@ -1471,6 +1492,35 @@ function loadLatest(rootDir, docId) {
   if (revision === null) return null;
   return { doc, revision };
 }
+function loadRevision(rootDir, docId, n) {
+  const dir = prdPath(rootDir, docId);
+  const filePath = join(dir, `r${padRevision(n)}.json`);
+  const doc = tryReadJson(filePath);
+  if (doc == null || typeof doc !== "object" || Array.isArray(doc)) return null;
+  return doc;
+}
+function listRevisions(rootDir, docId) {
+  const dir = prdPath(rootDir, docId);
+  if (!existsSync2(dir)) return [];
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const revFiles = entries.filter((f) => /^r\d{3}\.json$/.test(f));
+  const results = [];
+  for (const f of revFiles) {
+    const doc = tryReadJson(join(dir, f));
+    if (doc == null || typeof doc !== "object" || Array.isArray(doc)) continue;
+    const revision = doc.meta && typeof doc.meta.revision === "number" ? doc.meta.revision : null;
+    const createdAt = doc.meta && typeof doc.meta.createdAt === "string" ? doc.meta.createdAt : "";
+    if (revision === null) continue;
+    results.push({ revision, createdAt });
+  }
+  results.sort((a, b) => b.revision - a.revision);
+  return results;
+}
 function saveRevision(rootDir, doc) {
   if (doc == null || typeof doc !== "object" || Array.isArray(doc) || typeof doc.id !== "string" || doc.id.length === 0) {
     throw new Error(
@@ -1540,6 +1590,21 @@ function buildPrdApiHandlers(doc, chain = []) {
       return { json: { plan: match.doc } };
     }
   };
+}
+function assemblePriorChain(rootDir, docId, previousDoc) {
+  let chain = [];
+  try {
+    if (typeof docId === "string" && docId.length > 0) {
+      for (const { revision } of listRevisions(rootDir, docId)) {
+        const d = loadRevision(rootDir, docId, revision);
+        if (d) chain.push(d);
+      }
+    }
+  } catch {
+    chain = previousDoc ? [previousDoc] : [];
+  }
+  if (chain.length === 0 && previousDoc) chain = [previousDoc];
+  return chain;
 }
 function selectApproveDoc(agentDoc, nextRevision, prior, editedDocument) {
   let chosen = agentDoc;
@@ -1633,8 +1698,9 @@ async function handlePrd(options = {}) {
     meta: { ...authored.meta, revision: nextRevision }
   };
   const previousDoc = prior ? prior.doc : void 0;
+  const priorChain = assemblePriorChain(rootDir, authored.id, previousDoc);
   const serveHtml = scripted ? "<!doctype html><html><body><!-- planos PRD scripted/harness mode: no SPA --></body></html>" : buildSpaHtml(doc);
-  const apiHandlers = scripted ? {} : buildPrdApiHandlers(doc, previousDoc ? [previousDoc] : []);
+  const apiHandlers = scripted ? {} : buildPrdApiHandlers(doc, priorChain);
   const { decisionPromise, finish } = await startServer({
     onReady: (url) => {
       openBrowser(url);
@@ -1644,17 +1710,21 @@ async function handlePrd(options = {}) {
     apiHandlers
   });
   const resolved = await decisionPromise;
-  const decision = buildDecision(doc, resolved);
+  const picked = selectApproveDoc(
+    doc,
+    nextRevision,
+    prior,
+    resolved && typeof resolved === "object" ? resolved.editedDocument : void 0
+  );
+  const decision = buildDecision(
+    doc,
+    resolved,
+    picked.source === "reviewer-edited" ? { echoDoc: picked.doc } : {}
+  );
   let output;
   if (decision.behavior === "deny") {
     output = toPermissionRequestOutput(decision);
   } else {
-    const picked = selectApproveDoc(
-      doc,
-      nextRevision,
-      prior,
-      resolved && typeof resolved === "object" ? resolved.editedDocument : void 0
-    );
     let savedPath = null;
     let persistError = null;
     if (picked.persist) {

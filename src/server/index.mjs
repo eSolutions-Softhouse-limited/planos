@@ -31,13 +31,8 @@ function bindFreePort(server) {
 
     function tryBind() {
       attempts += 1;
-      // Port 0 → OS picks a free ephemeral port
-      server.listen(0, '127.0.0.1', () => {
-        const { port } = server.address();
-        resolve(port);
-      });
 
-      server.once('error', (err) => {
+      const onError = (err) => {
         if (err.code === 'EADDRINUSE' && attempts < MAX_PORT_RETRIES) {
           // Remove the error listener added by the previous attempt before retrying
           server.removeAllListeners('error');
@@ -45,7 +40,19 @@ function bindFreePort(server) {
         } else {
           reject(err);
         }
+      };
+
+      // Port 0 → OS picks a free ephemeral port
+      server.listen(0, '127.0.0.1', () => {
+        // LOW-a: the bind succeeded — drop the per-attempt error listener so it
+        // does not leak for the server's whole lifetime (only the EADDRINUSE
+        // retry path used to remove it; the success path never did).
+        server.removeListener('error', onError);
+        const { port } = server.address();
+        resolve(port);
       });
+
+      server.once('error', onError);
     }
 
     tryBind();

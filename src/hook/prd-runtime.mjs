@@ -352,12 +352,24 @@ function buildApproveFeedbackMessage(doc, envelope) {
  *
  * @param {import('../schema/types').Document} doc  Canonical current document.
  * @param {Record<string, unknown>} resolved        Server-resolved POST payload.
+ * @param {{ echoDoc?: import('../schema/types').Document }} [opts]
+ *   Optional override for the (id,kind,title) echo table doc on the
+ *   approve-with-feedback path. When the reviewer's edited working document
+ *   BECOMES the persisted revision (selectApproveDoc → source
+ *   'reviewer-edited'), the "REUSE THESE IDS" table must describe the PERSISTED
+ *   edited doc — NOT the pre-edit agent-authored `doc` — or the agent re-mints
+ *   / drops ids that no longer match what stuck. Absent → `doc` (unchanged
+ *   behaviour for the deny path and clean/scripted approves).
  * @returns {{ behavior: 'allow', message?: string }
  *          | { behavior: 'deny', message: string,
  *              guard?: import('../schema/types').BaseRevisionCheck,
  *              envelopeErrors?: string[] }}
  */
-export function buildDecision(doc, resolved) {
+export function buildDecision(doc, resolved, opts = {}) {
+  const echoDoc =
+    opts && opts.echoDoc && typeof opts.echoDoc === 'object'
+      ? opts.echoDoc
+      : doc;
   if (!resolved || resolved.behavior !== 'deny') {
     // APPROVE path. M2 Defect 1: if the reviewer left feedback alongside the
     // approval, surface it (rendered) on the allow so it is NOT silently
@@ -370,7 +382,11 @@ export function buildDecision(doc, resolved) {
         if (result.ok && envelopeHasFeedback(result.envelope)) {
           return {
             behavior: 'allow',
-            message: buildApproveFeedbackMessage(doc, result.envelope),
+            // MEDIUM-1: echo the PERSISTED doc's ids. On the reviewer-edited
+            // approve path `echoDoc` is the edited working doc that actually
+            // becomes the revision; the agent must REUSE those ids, not the
+            // stale pre-edit set.
+            message: buildApproveFeedbackMessage(echoDoc, result.envelope),
           };
         }
       }

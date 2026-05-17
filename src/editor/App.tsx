@@ -594,10 +594,18 @@ function AppInner({
             afterId={addingAfter.afterId}
             positionLabel={addingAfter.label}
             onAdd={(afterId, block) => {
-              const liveIds = new Set(
-                (workingDoc?.blocks ?? []).map((b) => b.id)
+              // Mint against an ADDS-AWARE taken-set: `workingDoc` is a useMemo
+              // that does not re-derive until React re-renders, so two adds
+              // before a re-render would both see the same `workingDoc` and
+              // mint the SAME bN. Including the pending `adds` ids closes that
+              // back-to-back-add collision window.
+              const taken = new Set(
+                [
+                  ...(workingDoc?.blocks ?? []).map((b) => b.id),
+                  ...adds.map((a) => a.block.id),
+                ].filter((x): x is string => typeof x === 'string')
               );
-              const id = mintAddedBlockId(liveIds);
+              const id = mintAddedBlockId(taken);
               setAdds((prev) => [
                 ...prev,
                 { afterId, block: { ...block, id } },

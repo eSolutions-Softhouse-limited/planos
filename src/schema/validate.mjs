@@ -599,6 +599,25 @@ export function validateDocument(obj) {
     for (let i = 0; i < obj.blocks.length; i++) {
       validateBlock(obj.blocks[i], i, errors);
     }
+    // Block ids must be unique across the document — they are the stable
+    // revision-chain key and the reviewer-edit fold-back anchor. A duplicate id
+    // silently corrupts edit/delete/reorder targeting and the persisted chain,
+    // so it is a HARD field-level error (the deny→revise loop can fix it; the
+    // approve path then safely falls back to the agent-authored doc).
+    const seenIds = new Set();
+    for (let i = 0; i < obj.blocks.length; i++) {
+      const blk = obj.blocks[i];
+      if (!isObject(blk) || !isNonEmptyString(blk.id)) continue;
+      if (seenIds.has(blk.id)) {
+        errors.push(
+          `blocks[${i}].id ${show(
+            blk.id,
+          )} is a duplicate — every block id must be unique across the document (block ids are the stable revision-chain key; reuse none verbatim more than once)`,
+        );
+      } else {
+        seenIds.add(blk.id);
+      }
+    }
   }
 
   if (errors.length > 0) {

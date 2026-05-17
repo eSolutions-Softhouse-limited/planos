@@ -52,7 +52,13 @@ import {
   openBrowserReal,
 } from './prd-runtime.mjs';
 import { validateDocument } from '../schema/index.mjs';
-import { loadLatest, saveRevision, canonicalize } from '../prd/store.mjs';
+import {
+  loadLatest,
+  loadRevision,
+  listRevisions,
+  saveRevision,
+  canonicalize,
+} from '../prd/store.mjs';
 
 // ---------------------------------------------------------------------------
 // PRD persisted-chain read-only API (AC-P12) — full chain, not current+prev.
@@ -142,6 +148,39 @@ export function buildPrdApiHandlers(doc, chain = []) {
       return { json: { plan: match.doc } };
     },
   };
+}
+
+/**
+ * Assemble the FULL persisted revision chain for a PRD doc id (MEDIUM-2 /
+ * AC-P12). The history browser + `GET /api/prd/versions` advertise the entire
+ * chain so ANY earlier revision is retrievable via
+ * `GET /api/prd/version?v=<old>`; passing only the immediate predecessor 404s
+ * every revision below it. Reads every persisted `rNNN.json` via the store
+ * (pure node:fs — AC-17-clean, same boundary as `loadLatest`).
+ *
+ * A read failure must NEVER block the round-trip: degrade to head+prev only
+ * (`previousDoc` when present, else empty — `buildPrdApiHandlers` always folds
+ * the current `doc` in itself, so the current revision stays retrievable).
+ *
+ * @param {string} rootDir
+ * @param {string} docId
+ * @param {object | undefined} previousDoc  loadLatest().doc, the degrade base.
+ * @returns {object[]}  Every persisted revision document (any order).
+ */
+export function assemblePriorChain(rootDir, docId, previousDoc) {
+  let chain = [];
+  try {
+    if (typeof docId === 'string' && docId.length > 0) {
+      for (const { revision } of listRevisions(rootDir, docId)) {
+        const d = loadRevision(rootDir, docId, revision);
+        if (d) chain.push(d);
+      }
+    }
+  } catch {
+    chain = previousDoc ? [previousDoc] : [];
+  }
+  if (chain.length === 0 && previousDoc) chain = [previousDoc];
+  return chain;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +471,10 @@ export async function handlePrd(options = {}) {
   };
   const previousDoc = prior ? prior.doc : undefined;
 
+  // MEDIUM-2 / AC-P12: pass the FULL persisted chain (not just [previousDoc])
+  // so any earlier revision is retrievable via GET /api/prd/version?v=<old>.
+  const priorChain = assemblePriorChain(rootDir, authored.id, previousDoc);
+
   // 4. Boot the blocking server (SCRIPTED placeholder vs REAL-SPA + /api/prd*).
   const serveHtml = scripted
     ? '<!doctype html><html><body>' +
@@ -440,7 +483,7 @@ export async function handlePrd(options = {}) {
     : buildSpaHtml(doc);
   const apiHandlers = scripted
     ? {}
-    : buildPrdApiHandlers(doc, previousDoc ? [previousDoc] : []);
+    : buildPrdApiHandlers(doc, priorChain);
 
   const { decisionPromise, finish } = await startServer({
     onReady: (url) => {
@@ -454,10 +497,34 @@ export async function handlePrd(options = {}) {
   // 5. BLOCK on the decision promise.
   const resolved = await decisionPromise;
 
+  // M3: decide WHICH document is persisted FIRST. The reviewer's edited
+  // working document (transmitted on the approve envelope as
+  // resolved.editedDocument) BECOMES the document when valid + same id; else
+  // fall back to the agent-authored doc. Computed before buildDecision so the
+  // approve-feedback echo table can describe the doc that actually sticks
+  // (MEDIUM-1). Pure: selectApproveDoc only DECIDES (no fs).
+  const picked = selectApproveDoc(
+    doc,
+    nextRevision,
+    prior,
+    resolved && typeof resolved === 'object'
+      ? resolved.editedDocument
+      : undefined,
+  );
+
   // Reuse the decision machinery: buildDecision applies the baseRevision race
   // guard (AC-P8) and serialises any FeedbackEnvelope into the deny message.
   // No envelope → backward-compatible directive + echo table + canonical JSON.
-  const decision = buildDecision(doc, resolved);
+  // MEDIUM-1: on the reviewer-edited approve path the "REUSE THESE IDS" echo
+  // table MUST reflect the PERSISTED edited doc (picked.doc), not the pre-edit
+  // agent-authored `doc` — otherwise the agent re-mints/drops ids that no
+  // longer match what stuck. The deny path is unaffected (it re-renders the
+  // agent doc, which is correct: on deny the reviewer edits did NOT stick).
+  const decision = buildDecision(
+    doc,
+    resolved,
+    picked.source === 'reviewer-edited' ? { echoDoc: picked.doc } : {},
+  );
 
   // 6. APPROVE → persist a NEW immutable revision (append-only) + emit a
   //    PRD-shaped success JSON. REVISE → emit the deny/revise PermissionRequest
@@ -466,19 +533,6 @@ export async function handlePrd(options = {}) {
   if (decision.behavior === 'deny') {
     output = toPermissionRequestOutput(decision);
   } else {
-    // M3: the reviewer's edited working document (transmitted on the approve
-    // envelope as resolved.editedDocument) BECOMES the document. Pick it when
-    // valid + same id; else fall back to the agent-authored doc. No structural
-    // change vs the prior revision → persist nothing (no-op correctness).
-    const picked = selectApproveDoc(
-      doc,
-      nextRevision,
-      prior,
-      resolved && typeof resolved === 'object'
-        ? resolved.editedDocument
-        : undefined,
-    );
-
     let savedPath = null;
     let persistError = null;
     if (picked.persist) {

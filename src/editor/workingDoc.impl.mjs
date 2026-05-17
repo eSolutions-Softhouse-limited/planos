@@ -185,10 +185,12 @@ export function deriveWorkingDoc(baseDoc, editorState) {
 
   // Pass 2: splice in added blocks. Each add is positioned AFTER `afterId`
   // (null → prepend; unknown id → append). Added blocks are id-stable: a
-  // caller-supplied non-empty string id is honoured verbatim; otherwise a
-  // deterministic collision-free id is minted that never clobbers an existing
-  // one. Ordering of multiple adds at the same anchor preserves insertion
-  // order (stable for the no-op / round-trip tests).
+  // caller-supplied non-empty string id that does NOT collide is honoured
+  // verbatim; otherwise (no id, or a supplied id already taken by a live block
+  // or an earlier add in this batch) a deterministic collision-free id is
+  // minted that never clobbers an existing one. Ordering of multiple adds at
+  // the same anchor preserves insertion order (stable for the no-op /
+  // round-trip tests).
   let blocks = patched;
   if (adds.length > 0) {
     const liveIds = new Set();
@@ -203,9 +205,17 @@ export function deriveWorkingDoc(baseDoc, editorState) {
       if (!isObj(entry) || !isObj(entry.block)) continue;
       let block = entry.block;
       const supplied = block.id;
-      if (typeof supplied !== 'string' || supplied.length === 0) {
-        // liveIds grows each iteration, so the seed-past-highest mint is
-        // already monotonic + collision-free across the batch (no ordinal
+      if (
+        typeof supplied !== 'string' ||
+        supplied.length === 0 ||
+        liveIds.has(supplied)
+      ) {
+        // No usable id OR a SUPPLIED id that already collides with a live id
+        // (base block or an earlier add in this batch) → mint a fresh one. This
+        // makes the docstring's "never clobbers an existing one" actually true:
+        // a colliding supplied id is re-minted, not silently merged onto the
+        // existing block. liveIds grows each iteration, so the seed-past-highest
+        // mint is monotonic + collision-free across the batch (no ordinal
         // bookkeeping needed — that would double-count).
         const id = mintAddedBlockId(liveIds);
         liveIds.add(id);
@@ -217,7 +227,7 @@ export function deriveWorkingDoc(baseDoc, editorState) {
       const afterId = entry.afterId;
       if (afterId === null || afterId === undefined) {
         prepended.push(block);
-      } else if (liveIds.has(afterId) || patched.some((b) => b && b.id === afterId)) {
+      } else if (liveIds.has(afterId)) {
         const arr = afterMap.get(afterId) || [];
         arr.push(block);
         afterMap.set(afterId, arr);

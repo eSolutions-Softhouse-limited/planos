@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "ls tests/*.mjs | wc -l; echo \"---run all---\"; pass=0; fail=0; for f in tests/*.test.mjs; do out=$(node \"$f\" 2>&1); if echo \"$out\" | grep -qE \"[1-9][0-9]* failed|Error:|throw\"; then echo \"POSSIBLE FAIL: $f\"; echo \"$out\" | tail -3; fail=$((fail+1)); else pass=$((pass+1)); fi; done; echo \"files-ok=$pass files-flagged=$fail\"; echo \"---tsc---\"; npx tsc -p . --noEmit 2>&1 | tail -5",
+    "buildCommand": "npx tsc --noEmit 2>&1 | tail -15; echo \"TSC_EXIT=$?\"",
     "testCommand": "npm test 2>&1 | tail -30",
     "lintCommand": null,
     "devCommand": null,
@@ -136,8 +136,8 @@
   "hotPaths": [
     {
       "path": "src/schema/validate.mjs",
-      "accessCount": 47,
-      "lastAccessed": 1779013950520,
+      "accessCount": 52,
+      "lastAccessed": 1779017186692,
       "type": "file"
     },
     {
@@ -154,8 +154,8 @@
     },
     {
       "path": "src/server/index.mjs",
-      "accessCount": 10,
-      "lastAccessed": 1779015710877,
+      "accessCount": 12,
+      "lastAccessed": 1779016472339,
       "type": "file"
     },
     {
