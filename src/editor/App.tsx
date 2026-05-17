@@ -129,6 +129,14 @@ function AppInner({
   // back through the single deriveWorkingDoc seam (id-stable; no renumber).
   const [deletes, setDeletes] = useState<string[]>([]);
   const [adds, setAdds] = useState<BlockAdd[]>([]);
+  // M5: the reviewer's desired block sequence. Folds back through the SAME
+  // single deriveWorkingDoc seam as a pure permutation (id-stable, no
+  // mint/renumber, no add/drop). Empty = original order (byte no-op).
+  const [order, setOrder] = useState<string[]>([]);
+  // The block id currently being dragged (native HTML5 DnD), and the id we'd
+  // drop BEFORE — drives the visual drop indicator. Both screen-only state.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropBeforeId, setDropBeforeId] = useState<string | null>(null);
   // Which block the edit modal is open on, and the add-modal anchor (afterId
   // === undefined means closed; null means "add at the top").
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -156,8 +164,11 @@ function AppInner({
   // comment/globalComment envelope stays advisory (M2). M4/M5 add their richer
   // edit/reorder mappings inside deriveWorkingDoc — App keeps this one seam.
   const workingDoc = useMemo(
-    () => (doc ? deriveWorkingDoc(doc, { edits, answers, deletes, adds }) : null),
-    [doc, edits, answers, deletes, adds]
+    () =>
+      doc
+        ? deriveWorkingDoc(doc, { edits, answers, deletes, adds, order })
+        : null,
+    [doc, edits, answers, deletes, adds, order]
   );
 
   // byId over the WORKING doc so phase task-title resolution sees live edits.
@@ -211,6 +222,45 @@ function AppInner({
     }
   }
 
+  // M5: commit a reorder. We always recompute a FULL order array from the
+  // CURRENT rendered sequence (renderBlocks already reflects edits/adds/
+  // deletes/prior reorder), move `id` to land before `beforeId` (or to the
+  // end when beforeId === null), and store that as the new `order`. This keeps
+  // `order` a complete, self-consistent permutation of the live working ids
+  // every time — deriveWorkingDoc then applies it as a pure permutation.
+  function reorderTo(id: string, beforeId: string | null) {
+    const ids = renderBlocks.map((b) => b.id);
+    const from = ids.indexOf(id);
+    if (from < 0) return;
+    const without = ids.filter((x) => x !== id);
+    let insertAt =
+      beforeId === null ? without.length : without.indexOf(beforeId);
+    if (insertAt < 0) insertAt = without.length;
+    without.splice(insertAt, 0, id);
+    // No-op guard: identical sequence → don't dirty `order` (keeps the
+    // edit-free path a byte no-op so the PRD store still skips a revision).
+    const changed = without.some((x, i) => x !== ids[i]);
+    if (changed) setOrder(without);
+  }
+
+  // Keyboard a11y equivalent of drag — move a block one slot up/down. Shipping
+  // this alongside native DnD so reorder is not drag-only (M5 requirement).
+  function moveBlockBy(id: string, delta: -1 | 1) {
+    const ids = renderBlocks.map((b) => b.id);
+    const i = ids.indexOf(id);
+    if (i < 0) return;
+    const target = i + delta;
+    if (target < 0 || target >= ids.length) return;
+    // Move BEFORE the neighbour we're swapping past (delta>0 → before the
+    // block after the neighbour, i.e. land where the neighbour was).
+    if (delta < 0) {
+      reorderTo(id, ids[target]);
+    } else {
+      const beforeId = target + 1 < ids.length ? ids[target + 1] : null;
+      reorderTo(id, beforeId);
+    }
+  }
+
   const state: EditorState = useMemo(
     () => ({
       edits,
@@ -222,11 +272,12 @@ function AppInner({
       ),
       deletes: deletes.length > 0 ? deletes : undefined,
       adds: adds.length > 0 ? adds : undefined,
+      order: order.length > 0 ? order : undefined,
       globalComment: globalComment.trim() || undefined,
       // Carried on approve only (envelope.impl.mjs gates on decision).
       editedDocument: workingDoc ?? undefined,
     }),
-    [edits, comments, answers, deletes, adds, globalComment, workingDoc]
+    [edits, comments, answers, deletes, adds, order, globalComment, workingDoc]
   );
 
   // M2 Defect 2: await the transport BEFORE flipping the UI to the terminal
@@ -348,8 +399,47 @@ function AppInner({
               setAddingAfter({ afterId: null, label: 'at the top' })
             }
           />
-          {renderBlocks.map((block) => (
-            <div key={block.id}>
+          {renderBlocks.map((block, idx) => (
+            <div
+              key={block.id}
+              onDragOver={(e) => {
+                // Only react while an App-level block drag is active. This is
+                // the OUTER block layer; TipTap's own ProseMirror DnD lives
+                // inside BlockRenderer and never sets dragId, so its internal
+                // drag/selection is left fully isolated.
+                if (dragId === null || dragId === block.id) return;
+                e.preventDefault();
+                if (dropBeforeId !== block.id) setDropBeforeId(block.id);
+              }}
+              onDrop={(e) => {
+                if (dragId === null) return;
+                e.preventDefault();
+                if (dragId !== block.id) reorderTo(dragId, block.id);
+                setDragId(null);
+                setDropBeforeId(null);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setDropBeforeId(null);
+              }}
+            >
+              {/* Visual drop indicator — a thin accent rule the dragged block
+                  would land before. */}
+              <div
+                {...{ [SCREEN_ONLY_ATTR]: '' }}
+                aria-hidden="true"
+                style={{
+                  height: 2,
+                  margin: '2px 0',
+                  borderRadius: 2,
+                  background:
+                    dragId !== null &&
+                    dropBeforeId === block.id &&
+                    dragId !== block.id
+                      ? theme.accent
+                      : 'transparent',
+                }}
+              />
               <div style={{ position: 'relative' }}>
                 <div
                   {...{ [SCREEN_ONLY_ATTR]: '' }}
@@ -360,6 +450,76 @@ function AppInner({
                     marginBottom: -6,
                   }}
                 >
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    draggable
+                    onDragStart={(e) => {
+                      setDragId(block.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      // Required by Firefox to start a native drag.
+                      e.dataTransfer.setData('text/plain', block.id);
+                    }}
+                    aria-label={`Drag to reorder block ${block.id} (position ${
+                      idx + 1
+                    } of ${renderBlocks.length})`}
+                    title="Drag to reorder"
+                    style={{
+                      fontSize: 12,
+                      color: theme.textMuted,
+                      background: theme.surfaceMuted,
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      padding: '2px 9px',
+                      cursor: 'grab',
+                      userSelect: 'none',
+                      marginRight: 'auto',
+                    }}
+                  >
+                    ⠿ drag
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => moveBlockBy(block.id, -1)}
+                    disabled={idx === 0}
+                    aria-label={`Move block ${block.id} up`}
+                    style={{
+                      fontSize: 12,
+                      color: idx === 0 ? theme.textMuted : theme.accent,
+                      background: 'none',
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      padding: '2px 9px',
+                      cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                      opacity: idx === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    ↑ up
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveBlockBy(block.id, 1)}
+                    disabled={idx === renderBlocks.length - 1}
+                    aria-label={`Move block ${block.id} down`}
+                    style={{
+                      fontSize: 12,
+                      color:
+                        idx === renderBlocks.length - 1
+                          ? theme.textMuted
+                          : theme.accent,
+                      background: 'none',
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 6,
+                      padding: '2px 9px',
+                      cursor:
+                        idx === renderBlocks.length - 1
+                          ? 'not-allowed'
+                          : 'pointer',
+                      opacity: idx === renderBlocks.length - 1 ? 0.5 : 1,
+                    }}
+                  >
+                    ↓ down
+                  </button>
                   <button
                     type="button"
                     onClick={() => setEditingId(block.id)}

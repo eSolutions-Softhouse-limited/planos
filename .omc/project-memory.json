@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; echo \"=== suite ===\"; node --test tests/*.test.mjs tests/harness/*.test.mjs >/tmp/m4b.log 2>&1; echo \"suite exit=$?\"; grep -E \"^ℹ (tests|pass|fail)\" /tmp/m4b.log; echo \"=== tsc ===\"; npx tsc --noEmit -p . >/tmp/tscb.log 2>&1; echo \"tsc exit=$? ($(wc -l </tmp/tscb.log) lines)\"; echo \"=== offline grep 1 (external src/href) ===\"; grep -coE '(src|href)[[:space:]]*=[[:space:]]*[\"'\"'\"']https?://' plugin/dist/index.html; echo \"=== offline grep 2 (external asset fetch URLs) ===\"; grep -oE 'https?://[^\"'\"'\"' ]+\\.(woff2?|ttf|otf|css|js|wasm)' plugin/dist/index.html | sort -u; echo \"=== bundle size ===\"; wc -c plugin/dist/index.html; echo \"=== runtime deps must be empty ===\"; node -e \"const p=require('./package.json');console.log('dependencies:',JSON.stringify(p.dependencies||{}));console.log('tiptap in devDeps:',Object.keys(p.devDependencies).filter(k=>k.includes('tiptap')||k.includes('prosemirror')))\"",
+    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; npx tsc --noEmit -p . > /tmp/tsc5.log 2>&1; echo \"tsc exit=$? lines=$(wc -l </tmp/tsc5.log)\"; cat /tmp/tsc5.log; echo \"--- App.tsx:163-172 ---\"; sed -n '163,172p' src/editor/App.tsx",
     "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
     "lintCommand": null,
     "devCommand": null,

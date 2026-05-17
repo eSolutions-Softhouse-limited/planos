@@ -199,6 +199,14 @@ export interface EditorState {
   deletes?: string[];
   /** M4: blocks the reviewer added, in insertion order. */
   adds?: BlockAdd[];
+  /**
+   * M5: the reviewer's desired block sequence over the WORKING ids (base +
+   * adds, minus deletes). A pure permutation consumed at the single
+   * deriveWorkingDoc seam — never mints/renumbers an id, never adds/drops a
+   * block. Ids not listed keep their relative position (re-appended after the
+   * ordered ones); ids that aren't live are skipped (deletes wins).
+   */
+  order?: string[];
   /** Optional document-wide comment. */
   globalComment?: string;
   /**

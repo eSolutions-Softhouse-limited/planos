@@ -22,10 +22,15 @@ import { type EditorState, type PlanDocument } from './types';
  *
  * M4: also folds back per-kind field edits, block deletes, and block adds
  * (id-stable — existing ids never renumber).
+ * M5: also folds back `order` — a pure block-sequence permutation (id-stable;
+ * never mints/renumbers, never adds/drops; `deletes` wins over `order`).
  */
 export function deriveWorkingDoc(
   baseDoc: PlanDocument,
-  editorState?: Pick<EditorState, 'edits' | 'answers' | 'deletes' | 'adds'>
+  editorState?: Pick<
+    EditorState,
+    'edits' | 'answers' | 'deletes' | 'adds' | 'order'
+  >
 ): PlanDocument {
   return deriveWorkingDocImpl(
     baseDoc,

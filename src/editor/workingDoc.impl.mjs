@@ -36,6 +36,24 @@
  *     end (never silently dropped). Added blocks keep whatever id they carry;
  *     `mintAddedBlockId` deterministically synthesizes a stable, collision-free
  *     id when the caller does not supply one.
+ *   - editorState.order            → M5 reorder: an array of block ids giving
+ *     the reviewer's desired sequence over the WORKING ids (base + adds, minus
+ *     deletes). Applied LAST, as a pure permutation: it never mints or
+ *     renumbers an id and never adds/drops a block. Compose contract:
+ *       * `order` is applied to the post-(delete+add)-splice block list, so a
+ *         freshly-added block already has a position and can be reordered by
+ *         listing its (minted) id in `order`.
+ *       * Live blocks whose id appears in `order` are emitted in `order`'s
+ *         sequence (first occurrence wins; duplicate ids ignored).
+ *       * A live block id NOT present in `order` is never dropped — it is
+ *         re-appended keeping its original post-splice relative position,
+ *         AFTER the ordered ones. (So a partial `order` of just the moved ids
+ *         still works; an empty/absent `order` is a byte no-op.)
+ *       * An id in `order` that is not live (deleted, or never existed) is
+ *         skipped — `deletes` always wins over `order`.
+ *     Net: a pure reorder yields the SAME block objects (id-stable, byte-equal
+ *     per block) in a new sequence; the produced doc stays validateDocument-
+ *     clean and canonical.
  *
  * Implemented as plain `.mjs` (zero toolchain) so the Node test harness can
  * import it directly; `workingDoc.ts` re-exports it for the typed call sites.
@@ -104,6 +122,7 @@ export function mintAddedBlockId(existingIds, ordinal = 0) {
  *   answers?: Record<string, string>,
  *   deletes?: string[] | Set<string>,
  *   adds?:    Array<{ afterId: string | null, block: Record<string, unknown> }>,
+ *   order?:   string[],
  * }} [editorState]
  * @returns {object}  A new Document (the working copy). `baseDoc` is untouched.
  */
@@ -123,6 +142,7 @@ export function deriveWorkingDoc(baseDoc, editorState) {
       ? state.deletes
       : new Set(Array.isArray(state.deletes) ? state.deletes : []);
   const adds = Array.isArray(state.adds) ? state.adds : [];
+  const order = Array.isArray(state.order) ? state.order : [];
 
   // Pass 1: patch + answer + delete existing blocks (id-stable).
   const patched = [];
@@ -216,6 +236,37 @@ export function deriveWorkingDoc(baseDoc, editorState) {
     }
     for (const b of appended) spliced.push(b);
     blocks = spliced;
+  }
+
+  // Pass 3 (M5): reorder. `order` is a pure permutation of the post-splice
+  // working ids — it never mints/renumbers an id and never adds/drops a block.
+  // Live blocks whose id is listed in `order` come first, in `order`'s
+  // sequence (first occurrence wins). Any live block NOT in `order` keeps its
+  // original post-splice relative position and is appended after the ordered
+  // ones (never dropped). Ids in `order` that are not live (deleted via
+  // `deletes`, or never existed) are skipped — `deletes` wins over `order`.
+  // An empty/absent `order`, or one that names exactly the current sequence,
+  // is a byte no-op (same array contents, same per-block identity).
+  if (order.length > 0) {
+    const byId = new Map();
+    for (const b of blocks) {
+      if (b && typeof b.id === 'string' && !byId.has(b.id)) byId.set(b.id, b);
+    }
+    const taken = new Set();
+    const ordered = [];
+    for (const id of order) {
+      if (typeof id !== 'string') continue;
+      if (taken.has(id)) continue; // duplicate id in `order` — first wins
+      if (!byId.has(id)) continue; // not live (deleted/unknown) — skip
+      ordered.push(byId.get(id));
+      taken.add(id);
+    }
+    // Re-append any live block `order` did not mention, in original order.
+    for (const b of blocks) {
+      if (b && typeof b.id === 'string' && taken.has(b.id)) continue;
+      ordered.push(b);
+    }
+    blocks = ordered;
   }
 
   return { ...baseDoc, blocks };
