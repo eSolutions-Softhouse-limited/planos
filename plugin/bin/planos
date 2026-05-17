@@ -32,6 +32,19 @@ function readBody(req) {
     req.on("error", reject);
   });
 }
+function sendAndFlush(res, status, headers, body) {
+  return new Promise((resolve3) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve3();
+    };
+    res.writeHead(status, headers);
+    res.once("finish", done);
+    res.end(body, done);
+  });
+}
 function flushStdout(text) {
   return new Promise((resolve3, reject) => {
     const flushed = process.stdout.write(text, "utf8", (err) => {
@@ -70,8 +83,12 @@ async function startServer({
         const body = await readBody(req);
         const payload = body ? JSON.parse(body) : {};
         const decision = { behavior: "allow", ...payload };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
+        await sendAndFlush(
+          res,
+          200,
+          { "Content-Type": "application/json" },
+          JSON.stringify({ ok: true })
+        );
         resolveDecision(decision);
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -84,8 +101,12 @@ async function startServer({
         const body = await readBody(req);
         const payload = body ? JSON.parse(body) : {};
         const decision = { behavior: "deny", ...payload };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
+        await sendAndFlush(
+          res,
+          200,
+          { "Content-Type": "application/json" },
+          JSON.stringify({ ok: true })
+        );
         resolveDecision(decision);
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -1220,19 +1241,54 @@ were NOT applied (race guard, design.md §6).
 Do NOT proceed. Re-emit the FULL v2 block document below UNCHANGED so the
 human can re-review the current revision. Do not invent changes from the
 stale feedback.`;
-function buildDecision(doc, resolved) {
-  if (!resolved || resolved.behavior !== "deny") {
-    return { behavior: "allow" };
-  }
-  const freeText = typeof resolved.feedback === "string" ? resolved.feedback : typeof resolved.message === "string" ? resolved.message : void 0;
-  const looksLikeBareEnvelope = resolved.envelope === void 0 && typeof resolved.documentId === "string" && Array.isArray(resolved.ops) && typeof resolved.baseRevision === "number";
-  const rawEnvelope = resolved.envelope !== void 0 ? resolved.envelope : looksLikeBareEnvelope ? {
+function locateEnvelope(resolved) {
+  if (resolved && resolved.envelope !== void 0) return resolved.envelope;
+  const looksLikeBareEnvelope = resolved && resolved.envelope === void 0 && typeof resolved.documentId === "string" && Array.isArray(resolved.ops) && typeof resolved.baseRevision === "number";
+  if (!looksLikeBareEnvelope) return void 0;
+  return {
     decision: resolved.decision,
     documentId: resolved.documentId,
     baseRevision: resolved.baseRevision,
     ops: resolved.ops,
     ...resolved.globalComment !== void 0 ? { globalComment: resolved.globalComment } : {}
-  } : void 0;
+  };
+}
+var APPROVE_WITH_FEEDBACK_DIRECTIVE = `YOUR PRD WAS APPROVED — proceed with it. The reviewer ALSO left feedback
+below. This is NOT a rejection: do NOT re-run /planos-prd and do NOT block on
+re-review. Fold the notes below into your work as you implement the approved
+PRD (treat them as accepted refinements / clarifications, not a new gate).`;
+function envelopeHasFeedback(envelope) {
+  const hasOps = Array.isArray(envelope.ops) && envelope.ops.length > 0;
+  const hasGlobal = typeof envelope.globalComment === "string" && envelope.globalComment.trim().length > 0;
+  return hasOps || hasGlobal;
+}
+function buildApproveFeedbackMessage(doc, envelope) {
+  return [
+    APPROVE_WITH_FEEDBACK_DIRECTIVE,
+    "",
+    renderOpsHuman(envelope),
+    "",
+    renderEchoTable(doc)
+  ].join("\n");
+}
+function buildDecision(doc, resolved) {
+  if (!resolved || resolved.behavior !== "deny") {
+    if (resolved) {
+      const approveEnvelope = locateEnvelope(resolved);
+      if (approveEnvelope !== void 0) {
+        const result2 = validateEnvelope(approveEnvelope);
+        if (result2.ok && envelopeHasFeedback(result2.envelope)) {
+          return {
+            behavior: "allow",
+            message: buildApproveFeedbackMessage(doc, result2.envelope)
+          };
+        }
+      }
+    }
+    return { behavior: "allow" };
+  }
+  const freeText = typeof resolved.feedback === "string" ? resolved.feedback : typeof resolved.message === "string" ? resolved.message : void 0;
+  const rawEnvelope = locateEnvelope(resolved);
   if (rawEnvelope === void 0) {
     return {
       behavior: "deny",
@@ -1285,7 +1341,7 @@ function buildDecision(doc, resolved) {
 function toPermissionRequestOutput(resolved) {
   const behavior = resolved.behavior === "deny" ? "deny" : "allow";
   const decision = { behavior };
-  if (behavior === "deny" && typeof resolved.message === "string") {
+  if (typeof resolved.message === "string" && resolved.message.length > 0) {
     decision.message = resolved.message;
   }
   return {
@@ -1536,10 +1592,11 @@ async function handlePrd(options = {}) {
     } catch (err) {
       persistError = err && err.message ? err.message : String(err);
     }
+    const approveDecision = typeof decision.message === "string" && decision.message.length > 0 ? { behavior: "allow", message: decision.message } : { behavior: "allow" };
     output = {
       hookSpecificOutput: {
         hookEventName: "PrdRoundTrip",
-        decision: { behavior: "allow" },
+        decision: approveDecision,
         prd: {
           documentId: doc.id,
           revision: doc.meta.revision,

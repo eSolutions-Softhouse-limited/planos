@@ -42,7 +42,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "cd /Users/ggiak/www/esolutions.gr/planos; echo \"VALID_DOC uses:\"; grep -n \"VALID_DOC\" tests/ac17-invariant.test.mjs; echo \"VALID_REVIEW_DOC uses:\"; grep -n \"VALID_REVIEW_DOC\" tests/ac17-invariant.test.mjs; echo \"require uses:\"; grep -n \"\\brequire\\b\" tests/ac17-invariant.test.mjs; echo \"--- tsc/eslint check ---\"; npx tsc --noEmit 2>&1 | grep -i \"ac17\" | head",
+    "buildCommand": "npm run build:bin 2>&1 | tail -20",
     "testCommand": "echo \"=== packaging.test.mjs ===\" && cat tests/packaging.test.mjs 2>/dev/null && echo \"\" && echo \"=== test runner / npm test ===\" && cat tests/run-all.mjs 2>/dev/null | head -60 ; echo \"---\" ; grep -rl \"ac17Roots\\|import-graph\\|bin/planos\" tests/ 2>/dev/null",
     "lintCommand": null,
     "devCommand": null,
@@ -153,6 +153,12 @@
       "type": "file"
     },
     {
+      "path": "src/server/index.mjs",
+      "accessCount": 8,
+      "lastAccessed": 1779012982162,
+      "type": "file"
+    },
+    {
       "path": "tests/fixtures/example.fixture.json",
       "accessCount": 6,
       "lastAccessed": 1778923867138,
@@ -168,12 +174,6 @@
       "path": "src/schema/id-strategy.mjs",
       "accessCount": 6,
       "lastAccessed": 1779011170269,
-      "type": "file"
-    },
-    {
-      "path": "src/server/index.mjs",
-      "accessCount": 5,
-      "lastAccessed": 1779010558033,
       "type": "file"
     },
     {
@@ -196,8 +196,8 @@
     },
     {
       "path": "tests/harness/result-shape.test.mjs",
-      "accessCount": 2,
-      "lastAccessed": 1778924012836,
+      "accessCount": 3,
+      "lastAccessed": 1779013050910,
       "type": "file"
     },
     {

@@ -303,10 +303,19 @@ export async function handlePrd(options = {}) {
       // the agent/tests can see it (the user is never blocked).
       persistError = err && err.message ? err.message : String(err);
     }
+    // M2 Defect 1: when the reviewer approved BUT also left feedback,
+    // buildDecision returns the allow with a rendered `message` (approve
+    // directive + ops + echo table). Carry it on the decision so the
+    // approved-with-notes feedback actually reaches the agent instead of
+    // being silently discarded. A clean approve has no message → bare allow.
+    const approveDecision =
+      typeof decision.message === 'string' && decision.message.length > 0
+        ? { behavior: 'allow', message: decision.message }
+        : { behavior: 'allow' };
     output = {
       hookSpecificOutput: {
         hookEventName: 'PrdRoundTrip',
-        decision: { behavior: 'allow' },
+        decision: approveDecision,
         prd: {
           documentId: doc.id,
           revision: doc.meta.revision,

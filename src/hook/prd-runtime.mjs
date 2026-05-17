@@ -237,12 +237,109 @@ human can re-review the current revision. Do not invent changes from the
 stale feedback.`;
 
 /**
+ * Locate the structured FeedbackEnvelope inside a resolved server payload, if
+ * any. Three POST shapes reach the decision machinery, in priority order:
+ *   1. The real SPA — `src/editor/envelope.ts` fetchTransport POSTs the BARE
+ *      envelope object as the request body, so the server spreads its fields
+ *      onto `resolved` directly (resolved.decision / .documentId /
+ *      .baseRevision / .ops). This is the production path (approve AND revise).
+ *   2. An explicit `{ envelope: {...} }` wrapper (isolated callers /
+ *      envelope.test.mjs) — kept working, takes precedence when present.
+ *   3. The scripted harness posts only `{ feedback }` / `{ source }` (no
+ *      envelope) → returns `undefined` (backward-compatible clean path).
+ *
+ * Shared by BOTH the approve and the deny branches so the two paths can never
+ * disagree about what counts as "an envelope" (M2 Defect 1 — the approve path
+ * previously had no envelope handling at all and discarded everything).
+ *
+ * @param {Record<string, unknown>} resolved
+ * @returns {Record<string, unknown> | undefined}
+ */
+function locateEnvelope(resolved) {
+  if (resolved && resolved.envelope !== undefined) return resolved.envelope;
+  const looksLikeBareEnvelope =
+    resolved &&
+    resolved.envelope === undefined &&
+    typeof resolved.documentId === 'string' &&
+    Array.isArray(resolved.ops) &&
+    typeof resolved.baseRevision === 'number';
+  if (!looksLikeBareEnvelope) return undefined;
+  return {
+    decision: resolved.decision,
+    documentId: resolved.documentId,
+    baseRevision: resolved.baseRevision,
+    ops: resolved.ops,
+    ...(resolved.globalComment !== undefined
+      ? { globalComment: resolved.globalComment }
+      : {}),
+  };
+}
+
+/**
+ * Strong preamble emitted on the APPROVE path when the reviewer ALSO left
+ * feedback (per-block comments / structured edits / answers / a global
+ * comment). M2 Defect 1 fix: an approve-with-notes used to return a bare
+ * `{ behavior: 'allow' }`, SILENTLY discarding every comment/op/globalComment —
+ * the agent never saw the reviewer's notes. The plan is approved (the agent
+ * proceeds) but the notes are now carried alongside the allow so the agent can
+ * fold them in. A clean approve (no feedback) stays a bare allow (no noise).
+ */
+const APPROVE_WITH_FEEDBACK_DIRECTIVE = `\
+YOUR PRD WAS APPROVED — proceed with it. The reviewer ALSO left feedback
+below. This is NOT a rejection: do NOT re-run /planos-prd and do NOT block on
+re-review. Fold the notes below into your work as you implement the approved
+PRD (treat them as accepted refinements / clarifications, not a new gate).`;
+
+/**
+ * Does this validated envelope carry any actual reviewer feedback? An approve
+ * with an empty ops[] and no globalComment is a clean approve and must stay a
+ * bare allow (design.md §3 — no noise on a clean approve).
+ *
+ * @param {import('../schema/types').FeedbackEnvelope} envelope
+ * @returns {boolean}
+ */
+function envelopeHasFeedback(envelope) {
+  const hasOps = Array.isArray(envelope.ops) && envelope.ops.length > 0;
+  const hasGlobal =
+    typeof envelope.globalComment === 'string' &&
+    envelope.globalComment.trim().length > 0;
+  return hasOps || hasGlobal;
+}
+
+/**
+ * Build the human message that rides along with an approve-with-feedback: the
+ * approve directive + the rendered ops/comments/globalComment + the
+ * (id,kind,title) echo table so the agent has the exact ids it may touch.
+ * Deliberately reuses `renderOpsHuman` so approve and deny render feedback
+ * identically (no second renderer to drift).
+ *
+ * @param {import('../schema/types').Document} doc
+ * @param {import('../schema/types').FeedbackEnvelope} envelope
+ * @returns {string}
+ */
+function buildApproveFeedbackMessage(doc, envelope) {
+  return [
+    APPROVE_WITH_FEEDBACK_DIRECTIVE,
+    '',
+    renderOpsHuman(envelope),
+    '',
+    renderEchoTable(doc),
+  ].join('\n');
+}
+
+/**
  * Turn a resolved server payload into the final deny/allow decision, applying
  * the `baseRevision` race guard (AC-10) and serializing the FeedbackEnvelope
- * into the deny message (AC-5, AC-9).
+ * into the deny message (AC-5, AC-9) — OR, on the approve path, into the
+ * approve `message` when the reviewer left feedback (M2 Defect 1).
  *
  * Resolution rules:
- *  - approve (no deny behavior)                → { behavior: 'allow' }
+ *  - approve, no/empty envelope                → { behavior: 'allow' } (clean)
+ *  - approve + envelope WITH ops/globalComment → { behavior: 'allow',
+ *        message: approve directive + rendered ops + echo table } so
+ *        approve-with-notes reaches the agent (M2 Defect 1). A stale
+ *        baseRevision on approve still surfaces the notes (the plan is
+ *        approved regardless; the notes are advisory, not applied edits).
  *  - deny + valid envelope, baseRevision OK    → deny.message =
  *        directive + rendered ops + echo table + canonical JSON
  *  - deny + valid envelope, baseRevision STALE → deny.message =
@@ -255,13 +352,29 @@ stale feedback.`;
  *
  * @param {import('../schema/types').Document} doc  Canonical current document.
  * @param {Record<string, unknown>} resolved        Server-resolved POST payload.
- * @returns {{ behavior: 'allow' }
+ * @returns {{ behavior: 'allow', message?: string }
  *          | { behavior: 'deny', message: string,
  *              guard?: import('../schema/types').BaseRevisionCheck,
  *              envelopeErrors?: string[] }}
  */
 export function buildDecision(doc, resolved) {
   if (!resolved || resolved.behavior !== 'deny') {
+    // APPROVE path. M2 Defect 1: if the reviewer left feedback alongside the
+    // approval, surface it (rendered) on the allow so it is NOT silently
+    // discarded. A clean approve (no envelope, or an envelope with no
+    // ops/globalComment) stays a bare allow — no noise.
+    if (resolved) {
+      const approveEnvelope = locateEnvelope(resolved);
+      if (approveEnvelope !== undefined) {
+        const result = validateEnvelope(approveEnvelope);
+        if (result.ok && envelopeHasFeedback(result.envelope)) {
+          return {
+            behavior: 'allow',
+            message: buildApproveFeedbackMessage(doc, result.envelope),
+          };
+        }
+      }
+    }
     return { behavior: 'allow' };
   }
 
@@ -272,35 +385,9 @@ export function buildDecision(doc, resolved) {
         ? resolved.message
         : undefined;
 
-  // Locate the structured FeedbackEnvelope, if any. Three POST shapes reach
-  // here, in priority order:
-  //   1. The real SPA — `src/editor/envelope.ts` fetchTransport POSTs the BARE
-  //      envelope object as the request body, so the server spreads its fields
-  //      onto `resolved` directly (resolved.decision / .documentId /
-  //      .baseRevision / .ops). This is the production path.
-  //   2. An explicit `{ envelope: {...} }` wrapper (used by isolated callers /
-  //      envelope.test.mjs) — kept working, takes precedence when present.
-  //   3. The scripted harness posts only `{ feedback }` (no envelope) — the
-  //      backward-compatible path below.
-  const looksLikeBareEnvelope =
-    resolved.envelope === undefined &&
-    typeof resolved.documentId === 'string' &&
-    Array.isArray(resolved.ops) &&
-    typeof resolved.baseRevision === 'number';
-  const rawEnvelope =
-    resolved.envelope !== undefined
-      ? resolved.envelope
-      : looksLikeBareEnvelope
-        ? {
-            decision: resolved.decision,
-            documentId: resolved.documentId,
-            baseRevision: resolved.baseRevision,
-            ops: resolved.ops,
-            ...(resolved.globalComment !== undefined
-              ? { globalComment: resolved.globalComment }
-              : {}),
-          }
-        : undefined;
+  // Locate the structured FeedbackEnvelope, if any (shared with the approve
+  // path — see locateEnvelope).
+  const rawEnvelope = locateEnvelope(resolved);
 
   if (rawEnvelope === undefined) {
     // No envelope (scripted) — backward-compatible path.
@@ -378,9 +465,14 @@ export function buildDecision(doc, resolved) {
  * Wrap a resolved server decision into the exact PermissionRequest hook
  * output shape (design.md §3 lines 90-92):
  *
- *   approve → { hookSpecificOutput: { hookEventName: "PermissionRequest",
- *                                     decision: { behavior: "allow" } } }
- *   revise  → decision.behavior = "deny", decision.message = <directive+table>
+ *   approve (clean)         → { hookSpecificOutput: { hookEventName:
+ *                               "PermissionRequest",
+ *                               decision: { behavior: "allow" } } }
+ *   approve (with feedback) → decision.behavior = "allow",
+ *                             decision.message = <approve directive + ops +
+ *                             echo table> (M2 Defect 1 — notes not discarded)
+ *   revise                  → decision.behavior = "deny",
+ *                             decision.message = <directive + table>
  *
  * @param {{ behavior: 'allow' | 'deny', message?: string }} resolved
  * @returns {{ hookSpecificOutput: { hookEventName: string, decision: object } }}
@@ -389,7 +481,11 @@ export function toPermissionRequestOutput(resolved) {
   const behavior = resolved.behavior === 'deny' ? 'deny' : 'allow';
   /** @type {{ behavior: string, message?: string }} */
   const decision = { behavior };
-  if (behavior === 'deny' && typeof resolved.message === 'string') {
+  // Deny ALWAYS carries its revise directive. Allow carries a message ONLY
+  // when the reviewer left feedback alongside the approval (M2 Defect 1) — a
+  // clean approve stays a bare { behavior: 'allow' } with no message (no
+  // noise).
+  if (typeof resolved.message === 'string' && resolved.message.length > 0) {
     decision.message = resolved.message;
   }
   return {

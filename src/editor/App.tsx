@@ -70,9 +70,14 @@ function AppInner({
 }: AppProps) {
   const theme = useTheme();
   const [doc, setDoc] = useState<PlanDocument | null>(null);
-  const [decision, setDecision] = useState<'idle' | 'approve' | 'revise'>(
-    'idle'
-  );
+  // 'sending' = the decision was chosen and the envelope is in flight; the
+  // terminal 'approve'/'revise' state is only entered AFTER the transport
+  // resolves (M2 Defect 2 — no false "captured" before delivery). 'error' =
+  // delivery genuinely failed; the reviewer can retry.
+  const [decision, setDecision] = useState<
+    'idle' | 'sending' | 'approve' | 'revise' | 'error'
+  >('idle');
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
   const [edits, setEdits] = useState<Record<string, Partial<TaskBlock>>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
@@ -111,20 +116,33 @@ function AppInner({
     [edits, comments, answers, globalComment]
   );
 
-  function handleApprove() {
-    setDecision('approve');
-    if (doc) {
-      emitEnvelope('approve', doc, state, transport);
-      onApprove?.(state, doc);
+  // M2 Defect 2: await the transport BEFORE flipping the UI to the terminal
+  // captured state. The decision is only "captured" once the server has
+  // actually received the envelope; a delivery failure surfaces a real error
+  // state (with retry) instead of a false confirmation.
+  async function submit(kind: 'approve' | 'revise') {
+    if (!doc || decision === 'sending') return;
+    setErrorMsg('');
+    setDecision('sending');
+    try {
+      await emitEnvelope(kind, doc, state, transport);
+      setDecision(kind);
+      if (kind === 'approve') onApprove?.(state, doc);
+      else onRevise?.(state, doc);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'Failed to deliver the decision.'
+      );
+      setDecision('error');
     }
   }
 
+  function handleApprove() {
+    void submit('approve');
+  }
+
   function handleRevise() {
-    setDecision('revise');
-    if (doc) {
-      emitEnvelope('revise', doc, state, transport);
-      onRevise?.(state, doc);
-    }
+    void submit('revise');
   }
 
   const shell: React.CSSProperties = {
@@ -269,43 +287,69 @@ function AppInner({
         </div>
 
         <div {...{ [SCREEN_ONLY_ATTR]: '' }}>
-        {decision === 'idle' ? (
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button
-              type="button"
-              onClick={handleApprove}
-              style={{
-                flex: 1,
-                padding: 13,
-                background: theme.accentApprove,
-                color: theme.onAccent,
-                border: 'none',
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 15,
-                cursor: 'pointer',
-              }}
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              onClick={handleRevise}
-              style={{
-                flex: 1,
-                padding: 13,
-                background: theme.accentRevise,
-                color: theme.onAccent,
-                border: 'none',
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 15,
-                cursor: 'pointer',
-              }}
-            >
-              Request Revision
-            </button>
-          </div>
+        {decision === 'idle' ||
+        decision === 'sending' ||
+        decision === 'error' ? (
+          <>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={decision === 'sending'}
+                style={{
+                  flex: 1,
+                  padding: 13,
+                  background: theme.accentApprove,
+                  color: theme.onAccent,
+                  border: 'none',
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 15,
+                  cursor: decision === 'sending' ? 'progress' : 'pointer',
+                  opacity: decision === 'sending' ? 0.6 : 1,
+                }}
+              >
+                {decision === 'sending' ? 'Sending…' : 'Approve'}
+              </button>
+              <button
+                type="button"
+                onClick={handleRevise}
+                disabled={decision === 'sending'}
+                style={{
+                  flex: 1,
+                  padding: 13,
+                  background: theme.accentRevise,
+                  color: theme.onAccent,
+                  border: 'none',
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 15,
+                  cursor: decision === 'sending' ? 'progress' : 'pointer',
+                  opacity: decision === 'sending' ? 0.6 : 1,
+                }}
+              >
+                {decision === 'sending' ? 'Sending…' : 'Request Revision'}
+              </button>
+            </div>
+            {decision === 'error' && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  background: theme.statusCutBg,
+                  border: `1px solid ${theme.bannerReviseBorder}`,
+                  borderRadius: 8,
+                  color: theme.statusCutFg,
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                Could not deliver the decision — it was NOT captured. Please
+                retry. ({errorMsg})
+              </div>
+            )}
+          </>
         ) : (
           <div
             style={{
